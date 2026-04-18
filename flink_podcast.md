@@ -900,6 +900,217 @@ At the **front door**, you have event sources: trading systems, core banking pla
 
 ---
 
+---
+
+# PART 7: "The Stuff That Bites You in Production"
+## Testing, Deployment, Skew & Production Readiness
+
+---
+
+**[MUSIC FADES]**
+
+**Maya:** Welcome to Part 7. Raj — we've covered the theory beautifully across six parts. But I want to ask the question every new Flink engineer eventually asks after their first production incident: what do teams actually get wrong?
+
+**Raj:** [laughs] Oh, this list. The concepts we've covered are the "what." Part 7 is the "how do you not shoot yourself in the foot." Let's go.
+
+---
+
+## Concepts 92–93: Testing — Unit Testing & Integration Testing Flink Jobs
+
+**Maya:** Let's start with testing. How do you even test a Flink job?
+
+**Raj:** This is the biggest gap I see in teams new to Flink. They write the job, run it locally, see the output, and call it done. No automated tests. Three months later, someone changes one condition in the fraud detection pattern — and it silently breaks reconciliation. Nobody knows until Friday 5 PM.
+
+**Maya:** So what's the proper approach?
+
+**Raj:** Two levels. For individual operators — ProcessFunctions, WindowFunctions, CEP patterns — you use the **TestHarness** pattern. Flink provides `ProcessFunctionTestHarnesses` that lets you test a single operator in complete isolation. You inject events one at a time, advance the watermark to trigger window firings, fire timers manually, and assert on output and state — all in-memory in a JUnit test. No Kafka, no cluster needed.
+
+**Maya:** Like a flight simulator for your operator.
+
+**Raj:** Exactly. For the full job topology, Flink provides a **MiniCluster** — a tiny Flink cluster that spins up inside your test process. You submit your actual job to it, inject test data via a custom source, collect outputs, and assert results. This validates the full topology — that your operators are wired together correctly, state flows properly, windows fire when expected.
+
+**Maya:** And for true end-to-end integration testing?
+
+**Raj:** **TestContainers**. This library starts real Docker containers — Kafka, Schema Registry, your target database — inside your test suite. Your Flink job runs against real infrastructure on random ports, fully isolated. This catches what MiniCluster can't: connector configuration issues, Schema Registry compatibility failures, serialization bugs that only appear with real bytes on a real wire.
+
+**Maya:** So the testing stack is: TestHarness for isolated operators, MiniCluster for full topology logic, TestContainers for integration?
+
+**Raj:** Exactly. Most teams skip all three. Don't be most teams.
+
+---
+
+## Concepts 94–96: Deployment Modes — Application Mode, Session Mode, Per-Job Mode
+
+**Maya:** When we said "Flink on Kubernetes" — we glossed over a big question. Do all your jobs share one Flink cluster?
+
+**Raj:** This is about **Deployment Modes** and it matters a lot for production isolation. There are three: Session Mode, Per-Job Mode, and Application Mode.
+
+**Maya:** Walk me through them.
+
+**Raj:** **Session Mode** — you start a long-running shared Flink cluster, and submit multiple jobs to it. All jobs share the same JobManager and TaskManager pool. Easy to get started with — like a shared office space where multiple teams work.
+
+**Maya:** What's the downside?
+
+**Raj:** Jobs compete for resources. One memory-leaking job can affect everyone else. If the JobManager crashes, every job on that cluster goes down together. Good for development, risky for production financial workloads.
+
+**Maya:** And **Per-Job Mode**?
+
+**Raj:** Each job gets its own dedicated cluster — its own JobManager and TaskManagers — torn down when the job finishes. Better isolation, but cluster bootstrap adds startup latency. Worth noting: this mode is deprecated on Kubernetes in newer Flink versions.
+
+**Maya:** So what should you use in production on Kubernetes?
+
+**Raj:** **Application Mode**. This is the modern, cloud-native approach. Your job's `main()` method runs on the JobManager itself — not on a separate client machine. Each job is a fully self-contained application with its own cluster. Like each microservice having its own dedicated infrastructure. Best isolation, cleanest security boundaries. For production Kubernetes — Application Mode, every time.
+
+---
+
+## Concept 97: Unaligned Checkpoints
+
+**Maya:** We talked about checkpointing and incremental checkpointing. Is there another variant for performance?
+
+**Raj:** Yes — **Unaligned Checkpoints**, and they solve a specific painful production problem. In regular checkpointing, Flink sends a barrier through the data stream. Every operator waits for the barrier to arrive before snapshotting state. But if the pipeline has backpressure — data piling up because a downstream operator is slow — the barrier gets stuck behind thousands of queued events. Your checkpoint takes minutes instead of seconds.
+
+**Maya:** Which means if the job crashes while the checkpoint is delayed, you replay from a much older checkpoint.
+
+**Raj:** Exactly. **Unaligned Checkpoints** solve this. Instead of waiting for the barrier to travel through buffered data naturally, Flink includes all the in-flight data in network buffers as part of the checkpoint snapshot. The barrier leaps ahead. Checkpointing under backpressure becomes fast again.
+
+**Maya:** The tradeoff?
+
+**Raj:** The checkpoint is larger — it includes all that buffered data — and recovery takes slightly longer. But for systems with chronic backpressure, the difference is dramatic. A checkpoint taking 15 minutes can drop to 30 seconds. In a financial system where your recovery point objective is measured in minutes, this is critical.
+
+---
+
+## Concept 98: Hot Keys & Data Skew
+
+**Maya:** Here's a scenario. AAPL and EURUSD have 10x the trading volume of any other instrument. If you key your stream by instrument, one slot is overwhelmed while others idle. Problem?
+
+**Raj:** A very common production problem called **Data Skew** or the **Hot Key Problem**. When one key dominates traffic, the TaskManager slot responsible for that key becomes a bottleneck. Your entire pipeline's throughput ceiling is set by that one overloaded slot — even if 40 other slots sit mostly idle.
+
+**Maya:** Like one checkout lane with 200 people while 10 lanes are empty.
+
+**Raj:** Perfect. The fix for aggregations is **two-phase aggregation**. First, salt the key: append a random number 0–9 to each key, creating 10 virtual sub-keys. AAPL becomes AAPL-0, AAPL-1, ..., AAPL-9, each going to a different slot. Compute partial aggregates in parallel across 10 slots. A second stage merges the partial results. AAPL's load is now spread across 10 slots instead of 1.
+
+**Maya:** And how do you detect skew in production?
+
+**Raj:** Flink's per-subtask metrics expose throughput per operator instance. If one subtask has 10x the throughput of its siblings while all are on the same operator — you have skew. Your Grafana dashboards need per-subtask breakdown, not just operator-level aggregates. Aggregate metrics will hide this problem entirely.
+
+---
+
+## Concept 99: Distributed Tracing & Correlation IDs
+
+**Maya:** In microservices we use distributed tracing — Jaeger, OpenTelemetry — to follow a request across services. Does that apply to event streaming pipelines?
+
+**Raj:** Absolutely, and this is massively underimplemented in streaming systems. Think about a trade event in our reference architecture. It flows through the OMS, then Kafka, then a Flink enrichment job, then Kafka again, then a Flink risk job, then a database. When a risk manager calls to say "I'm missing trade T-12345 in my position" — how do you find it?
+
+**Maya:** Without tracing, you're grepping through logs across five systems with different timestamp formats.
+
+**Raj:** Hours of pain. The foundation is **Correlation IDs in event headers**. Every event carries a UUID correlation ID from birth through its entire lifecycle. Producers generate it and attach it to the Kafka message header. Every Flink operator extracts that ID, includes it in every log line, and propagates it to any output events it produces.
+
+**Maya:** So you can search your log system for one UUID and see the full journey of that trade.
+
+**Raj:** And with **OpenTelemetry**, you go further. You instrument each Flink operator to emit distributed trace spans — start a span when processing begins, end it when output is emitted. The trace context travels in the event header, linking spans from different services into a single trace. Tools like Jaeger or Grafana Tempo visualise the full journey: "Trade T-12345: enrichment 12ms, fraud check 8ms, written to risk DB 3ms." End-to-end visibility with millisecond precision.
+
+**Maya:** And you said this is underimplemented?
+
+**Raj:** Dramatically. Most teams add it after their first major production debugging crisis. Add it from day one — it costs almost nothing to instrument and saves enormous engineering time when things go wrong.
+
+---
+
+## Concept 100: Data Quality Validation Layer
+
+**Maya:** What about events that pass Avro deserialization — the structure is valid — but the content is business nonsense? Negative quantities, currency code "XYZ", settlement date 40 years in the future?
+
+**Raj:** This is **Data Quality Validation** — a dedicated layer in your Flink pipeline, immediately after deserialization and before any business logic runs.
+
+**Maya:** What does this layer look like?
+
+**Raj:** Typically a `ProcessFunction` that runs a set of validation rules. "Quantity must be positive and non-zero." "Instrument ISIN must exist in our reference table." "Timestamp cannot be more than 5 minutes in the future." "Currency must be a valid ISO 4217 code." Events that fail validation are routed via **Side Output** to a data quality DLQ topic, with the specific failed rule annotated on the event. Valid events flow downstream untouched.
+
+**Maya:** So you quarantine bad data before it can corrupt your state.
+
+**Raj:** Exactly. And you alert on validation failure rates. 0.05% failure is noise. A sudden spike to 5% means something is wrong upstream — a new producer, a schema mismatch, a broken upstream system. In finance, corrupted events silently contaminating your risk aggregation state is a disaster. This layer prevents it.
+
+---
+
+## Concept 101: Graceful Shutdown — Stop with Drain
+
+**Maya:** How do you properly stop a running Flink job in production? Not crash it — intentionally stop it.
+
+**Raj:** Three modes. **Cancel** — immediately terminates the job and discards all in-flight state. Almost never appropriate in production. **Stop with Savepoint** — which we covered — cleanly takes a savepoint and stops. Events currently in-flight at the moment of the stop might not be fully processed.
+
+**Maya:** And the cleanest option?
+
+**Raj:** **Stop with Drain**. Flink stops reading from sources but continues processing all events already in the pipeline until the streams are empty. Then it takes a final savepoint and stops. Like last call at a bar: no new orders, but everyone finishes their current drink before the doors close.
+
+**Maya:** So you're guaranteed no events are in-flight when the job stops.
+
+**Raj:** Exactly. And for Kubernetes pod lifecycle: Flink listens for SIGTERM and initiates graceful shutdown. You must set `terminationGracePeriodSeconds` in your Kubernetes pod spec to be longer than your expected shutdown or drain time. If Kubernetes sends SIGKILL before the savepoint completes, you lose it and fall back to the last automatic checkpoint. For most production Flink jobs, 120–180 seconds of grace period is safe.
+
+---
+
+## Concept 102: Capacity Planning — Sizing Flink Jobs
+
+**Maya:** How do you figure out how many TaskManagers you need? How much memory?
+
+**Raj:** Start by measuring your peak event rate — events per second at the busiest trading window. Benchmark your operators: how many events per second can a single processing slot handle for your specific business logic? Divide one by the other. Add 30% headroom for burst traffic.
+
+**Maya:** And for memory?
+
+**Raj:** Flink's memory model divides total memory into four regions. **JVM Heap** — for Java objects in your operators. **Managed Memory** — for RocksDB state backend and sort buffers. **Network Memory** — for shuffle buffers between operators on different machines. **Off-heap / Framework** — for Flink internals. For financial applications with large state, size Managed Memory generously — at least 40% of total. If you see RocksDB write stalls, increase it further or move to faster SSD-backed storage.
+
+**Maya:** How do you know if the sizing is right?
+
+**Raj:** Monitor in production and iterate. Frequent long GC pauses → increase JVM heap or move more state to RocksDB managed memory. RocksDB compaction falling behind → more managed memory or faster disk. Checkpoint duration growing over time → check network buffer configuration. Start conservatively and tune based on observed production metrics in the first few weeks.
+
+---
+
+## Concept 103: Kubernetes Health Checks for Flink
+
+**Maya:** Kubernetes uses liveness and readiness probes to manage pods. How does Flink integrate?
+
+**Raj:** Flink exposes a REST API that Kubernetes probes. The **Liveness Probe** checks: is the Flink process alive and responsive? Kubernetes restarts the container if this fails. The **Readiness Probe** checks: is this component actually ready to do productive work?
+
+**Maya:** What does "not ready" look like for a TaskManager?
+
+**Raj:** A TaskManager still recovering state from RocksDB after a restart — which can take seconds to minutes for large state stores — should report not ready until recovery completes. This prevents Kubernetes from assigning tasks to a TaskManager whose state is still loading, which would produce incorrect results from incomplete state.
+
+**Maya:** And the JobManager?
+
+**Raj:** The JobManager's readiness probe should return unhealthy during leader election or failover — you don't want traffic routed to a JobManager that hasn't yet become the leader. Combined with Application Mode, proper health check configuration lets Kubernetes safely roll out Flink upgrades without prematurely considering new pods healthy.
+
+---
+
+## Concept 104: CI/CD for Flink — Stateful Deployments
+
+**Maya:** How do you build a proper delivery pipeline for Flink jobs? It can't just be build-and-push.
+
+**Raj:** You're right — streaming CI/CD is fundamentally different from regular application CI/CD because of state. Here's the pipeline. **Build stage**: compile the job into a fat JAR. Run all unit tests — TestHarness and MiniCluster. Run integration tests with TestContainers. Any failure blocks the pipeline.
+
+**Maya:** Then?
+
+**Raj:** **Validate stage**: submit the job to a staging Flink cluster. Verify it starts correctly, connects to configured sources and sinks, begins processing without errors.
+
+**Maya:** And the critical stateful part?
+
+**Raj:** **Deploy stage** for a live job update: (1) trigger a savepoint on the currently running job via the Flink REST API. (2) Wait for the savepoint to complete and verify its path. (3) Deploy the new JAR. (4) Start the new job, pointing it at the savepoint. (5) Monitor for 5–10 minutes: correct offsets? State loading properly? Throughput recovering? If anything fails — you have the savepoint, restart the old version from it.
+
+**Maya:** So the savepoint is your rollback button.
+
+**Raj:** Exactly. This is what makes streaming CI/CD more complex than regular CI/CD — and why you need it automated from day one. A deployment that ignores state compatibility is gambling with your data. The Flink Kubernetes Operator can automate this cycle, but you must understand what it's doing under the hood.
+
+---
+
+**Maya:** Raj, this feels like the chapter every Flink textbook forgets to include.
+
+**Raj:** [laughs] Because these lessons come from production incidents. Someone had no tests and a fraud logic bug ran undetected for a week. Someone deployed in Session Mode and one job's memory leak killed the entire cluster. Someone had no correlation IDs and spent 8 hours tracing a single missing trade across five systems. Someone forgot terminationGracePeriodSeconds and lost events on every planned restart.
+
+**Maya:** Learning by suffering.
+
+**Raj:** The most effective teacher in distributed systems. Add testing, tracing, data validation, proper deployment modes, health checks, and graceful shutdown from day one. Every one of these is a two-hour investment that prevents a 2 AM incident.
+
+**[MUSIC TRANSITION]**
+
+---
+
 **Maya:** That is a wrap on *Streams of Money*. If you made it through all six parts — congratulations. You now have a mental map of one of the most sophisticated data processing systems in the financial industry.
 
 **Raj:** And the amazing thing is — none of this is theoretical. Every concept we discussed today is running in production at banks, hedge funds, exchanges, and fintech companies around the world right now.

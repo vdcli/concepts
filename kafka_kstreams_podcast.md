@@ -588,6 +588,216 @@
 
 ---
 
+## PART 27: "Trust but Verify" — Testing Kafka & Kafka Streams
+### *Concepts covered: #110 TopologyTestDriver, #111 TestContainers / EmbeddedKafka, #112 Consumer Testing Patterns*
+
+---
+
+**ALEX:** Priya — here's something I realised we haven't mentioned once in this entire episode: the word "test."
+
+**PRIYA:** You're right. And that's a serious omission. Streaming applications are notoriously hard to test — the asynchronous, time-sensitive nature means bugs can be subtle and only surface under specific event ordering. Proper testing is non-negotiable for a production financial system.
+
+**ALEX:** Let's start with Kafka Streams topologies. How do you unit-test a KStream pipeline?
+
+**PRIYA:** The answer is the **TopologyTestDriver** — Kafka's built-in test harness specifically for KStreams. You define your topology exactly as you would in production, but instead of connecting to a real Kafka cluster, you inject events directly through a `TestInputTopic` and capture outputs via a `TestOutputTopic`. Everything runs synchronously in your JUnit test process — no Kafka cluster, no network, no waiting.
+
+**ALEX:** So it's a fully in-memory Kafka Streams runtime for testing.
+
+**PRIYA:** Exactly. You can pipe in 10 trade events with specific timestamps, advance the stream's internal clock to trigger window closures and grace period expirations, simulate late-arriving events, and assert: "Given these inputs, I should see exactly these outputs." Testing a windowed aggregation, a join with a KTable, or a stateful fraud detection — all achievable in a single fast JUnit test.
+
+**ALEX:** What does the TopologyTestDriver not cover?
+
+**PRIYA:** It doesn't test real Kafka connectivity — broker configuration, Schema Registry integration, connector behaviour, actual network serialization. For that, you need **TestContainers**. TestContainers is a library that starts real Docker containers — a Kafka broker, Schema Registry, your target database — inside your test suite, on random ports, fully isolated. Your actual consumer or KStreams application connects to it. When the test ends, everything is torn down automatically.
+
+**ALEX:** This catches things TopologyTestDriver can't. Schema compatibility failures. Connector configuration errors. Deserialization bugs that only appear with real bytes on a real wire.
+
+**PRIYA:** For testing raw Kafka consumers specifically, you want to cover three scenarios: successful processing of a valid message, correct handling of a malformed message that fails deserialization, and correct offset commit behaviour — that you're committing offsets after processing completes, not before. TestContainers lets you test all three against a real broker.
+
+**ALEX:** So the testing pyramid for Kafka: TopologyTestDriver for fast unit tests, TestContainers for integration tests, staging environment with realistic data volumes for pre-production?
+
+**PRIYA:** Exactly right. Most teams skip the first two layers entirely. Don't be those teams.
+
+---
+
+## PART 28: "When Things Go Wrong" — Error Handling, Offset Management & Threading
+### *Concepts covered: #113 DeserializationExceptionHandler, #114 ProductionExceptionHandler, #115 UncaughtExceptionHandler, #116 Manual vs Auto Offset Commit, #117 num.stream.threads*
+
+---
+
+**ALEX:** Let's talk about error handling in Kafka Streams — the stuff the happy path doesn't cover.
+
+**PRIYA:** There are three categories of errors you must handle explicitly in production. First: **deserialization errors**. A message arrives that your deserializer can't parse. Maybe the producer sent malformed bytes. Maybe the schema changed in a breaking way. By default, Kafka Streams throws an exception and stops the entire application. In a production trading system, stopping for one bad message is completely unacceptable.
+
+**ALEX:** So you configure a **DeserializationExceptionHandler**.
+
+**PRIYA:** Right. Kafka Streams provides two built-in options: `LogAndContinueExceptionHandler` — log the error, skip the message, keep going — and `LogAndFailExceptionHandler` — log and stop. For production, you typically write a custom handler that routes the bad bytes along with error metadata to a DLQ topic, then continues processing. You never silently discard data in finance.
+
+**ALEX:** Second category?
+
+**PRIYA:** **Production errors** — when Kafka Streams fails to write an output record to a Kafka sink. Network issues, authentication failure, a full disk on the broker. You handle these with a **ProductionExceptionHandler**. In finance, you typically fail fast here — a lost output event could mean a missed risk calculation or a missed compliance alert. Better to stop and alert than silently lose data.
+
+**ALEX:** Third?
+
+**PRIYA:** **Uncaught exceptions in stream threads** — runtime exceptions in your business logic that nobody caught. You handle these with `setUncaughtExceptionHandler`. From Kafka Streams 2.8 onwards, you can configure the stream thread to replace itself on an uncaught exception — it restarts the failed thread rather than bringing down the entire application. Like a supervisor that spawns a new worker when one crashes, without stopping the whole factory.
+
+**ALEX:** Now, offset commit. We mentioned offsets earlier but glossed over a critical question: when exactly should you commit?
+
+**PRIYA:** This is critical for delivery guarantees. **Auto-commit** — `enable.auto.commit=true` — commits offsets on a timer, every few seconds, regardless of whether you've finished processing. If your consumer crashes after the auto-commit but before processing is complete — those messages are gone. At-most-once delivery. Unacceptable in finance.
+
+**ALEX:** So for financial systems — manual commit?
+
+**PRIYA:** Almost always. With **manual commit**, you call `consumer.commitSync()` only after processing is complete and all side effects — database writes, downstream Kafka produces — have succeeded. If you crash before committing, you re-read and re-process those messages. Combined with idempotent processing logic, this gives you at-least-once delivery with no data loss.
+
+**ALEX:** For KStreams specifically?
+
+**PRIYA:** In Kafka Streams with exactly-once semantics enabled — EOS v2 — offset commits are atomic with state store writes and output topic produces. You get exactly-once without managing commits manually. For at-least-once KStreams, commits happen automatically at configurable intervals. Tune `commit.interval.ms` based on your acceptable replay window on failure.
+
+**ALEX:** Let's talk threading. How many threads does Kafka Streams use?
+
+**PRIYA:** Controlled by `num.stream.threads`. Each stream thread handles a set of tasks — one task per partition your application is assigned. Default is 1 thread. With 12 partitions and 1 thread, that thread processes all 12 tasks sequentially. Set `num.stream.threads=4` and you get 4 parallel threads handling 3 tasks each — significantly higher throughput on a multi-core machine within a single JVM.
+
+**ALEX:** So you can scale vertically with threads, or horizontally with additional application instances.
+
+**PRIYA:** Exactly. For CPU-bound processing, adding threads on a machine with available cores is cheaper than running a new JVM instance. For memory-intensive state stores, separate JVM instances with dedicated heap are often better. Real production tuning uses both — multiple instances, each with multiple threads.
+
+---
+
+## PART 29: "Invisible Killers" — Data Skew, Tracing, Validation & Graceful Shutdown
+### *Concepts covered: #118 Hot Partition Problem, #119 Correlation IDs & OpenTelemetry, #120 Data Quality Validation, #121 Graceful Shutdown*
+
+---
+
+**PRIYA:** Alex, what are the problems that don't show up on day one but quietly cause serious pain at scale?
+
+**ALEX:** Data skew is at the top of my list. The **Hot Partition Problem**. If you partition your `trades` topic by instrument, and AAPL or EURUSD has 10x the volume of any other instrument, one partition gets overwhelmed. The consumer instance handling that partition becomes a bottleneck — falling behind, causing consumer lag — while every other instance is idle.
+
+**PRIYA:** Like one checkout lane with 200 people while 9 lanes are empty.
+
+**ALEX:** For aggregations, you fix it with **key salting**: append a random suffix 0–9 to hot keys before a first-pass aggregation. AAPL becomes AAPL-0, AAPL-1, ..., AAPL-9, each going to a different partition. Compute partial aggregates in parallel across 10 partitions. A second KStreams step merges the partial results. The hot key's load is distributed across 10 partitions instead of 1.
+
+**PRIYA:** And you detect skew by monitoring consumer lag **per partition**, not just total. If partition 7 has 50,000 messages of lag while all others are at zero — you have a hot partition. Your Grafana dashboards need per-partition breakdown. Aggregate metrics will hide this problem entirely.
+
+**ALEX:** Let's talk about something almost no streaming system implements properly from the start: **distributed tracing**.
+
+**PRIYA:** In a modern financial system, a trade event might flow through 6 or 7 services connected via Kafka. When something goes wrong — a trade is missing from the risk system — how do you trace its journey?
+
+**ALEX:** Without tracing, you're manually correlating log files across six services with different timestamp formats.
+
+**PRIYA:** The solution starts with **Correlation IDs in Kafka message headers**. When the OMS publishes a trade event, it generates a UUID and attaches it to the Kafka message header — not the payload, the header, so it doesn't pollute your business schema. Every consumer reads the header, includes the ID in every log line, and propagates it to any messages it produces downstream.
+
+**ALEX:** Suddenly, you can search your log aggregation system for one trade's UUID and see its complete journey across all services.
+
+**PRIYA:** And with **OpenTelemetry** — a vendor-neutral observability standard — you go further. Each consumer creates trace spans: a parent span for reading the message, child spans for major processing steps. The trace context travels in message headers, linking spans from different services into a single trace. Tools like Jaeger or Grafana Tempo visualise the full journey as a timeline. "This trade: OMS to Kafka 2ms, enrichment consumer 15ms, risk consumer 8ms, written to DB 4ms." Total end-to-end: 29ms. You see exactly where time was spent.
+
+**ALEX:** And when latency suddenly goes from 29ms to 500ms on Tuesday afternoon — you immediately see which step is slow.
+
+**PRIYA:** Add this from day one. Small instrumentation effort, enormous payoff when debugging production issues.
+
+**ALEX:** Let's talk about data quality. An event arrives. Avro deserialization succeeds — the structure is valid. But the content is business nonsense: a negative quantity, a settlement date in 2089, a counterparty ID your reference system doesn't recognise.
+
+**PRIYA:** If you process it silently, you corrupt your state. A negative quantity in a risk aggregation produces a negative position — wrong, but mathematically valid. It flows downstream into P&L calculation, into margin calculation. By the time someone notices, hours of risk data are corrupted.
+
+**ALEX:** So you add a **data quality validation stage** — a KStreams step right after deserialization that runs business validation rules. Quantity greater than zero. Instrument ISIN in reference table. Currency a valid ISO code. Timestamp within 5 minutes of now. Events failing validation branch to a DLQ. Valid events continue downstream.
+
+**PRIYA:** And you alert on validation failure rates. 0.1% might be occasional noise. A sudden spike to 3% means a producer broke something upstream. Silent data corruption is far more dangerous than a loud, obvious failure. This layer makes the failures loud.
+
+**ALEX:** Final topic in this part: graceful shutdown. How do you stop a Kafka consumer properly?
+
+**PRIYA:** Most engineers just kill the process. That works until it doesn't — uncommitted offsets get replayed, in-flight messages are dropped, or the consumer leaves the group abruptly, triggering an unnecessary rebalance that pauses processing for all remaining consumers in the group.
+
+**ALEX:** The right approach?
+
+**PRIYA:** For a raw Kafka consumer: register a **shutdown hook** that calls `consumer.wakeup()` when SIGTERM arrives. The `wakeup()` causes the `poll()` call to throw `WakeupException`. Your main loop catches it, processes any records already fetched, commits offsets, then calls `consumer.close()`. Clean, graceful, no data loss, no unnecessary rebalance.
+
+**ALEX:** For Kafka Streams?
+
+**PRIYA:** Call `streams.close(Duration.ofSeconds(60))` in your shutdown hook. KStreams stops reading new messages, flushes pending state to RocksDB, commits current offsets, and closes connections. The key is setting Kubernetes `terminationGracePeriodSeconds` higher than your expected shutdown time — 60 to 120 seconds for most KStreams applications. If Kubernetes sends SIGKILL before shutdown completes, you lose in-flight work and trigger a group rebalance for the rest of the consumer group. A two-minute configuration change prevents hours of on-call pain.
+
+---
+
+## PART 30: "Running a Clean Ship" — Topic Governance, Offset Reset, Capacity Planning, CI/CD & Health Checks
+### *Concepts covered: #122 Topic Naming Conventions, #123 Offset Reset Strategies, #124 CooperativeStickyAssignor, #125 Capacity Planning, #126 CI/CD for Kafka, #127 Kubernetes Health Checks*
+
+---
+
+**PRIYA:** Let's talk about what makes a Kafka deployment maintainable as it grows from 5 topics to 500 topics across 30 teams.
+
+**ALEX:** First: **topic naming conventions**. This sounds mundane but becomes critical at scale.
+
+**PRIYA:** A common pattern for financial systems: `{domain}.{subdomain}.{entity}.{version}`. So: `trading.equities.trade-events.v1`, `risk.credit.exposure-updates.v2`, `compliance.surveillance.alerts.v1`. The name tells you immediately which domain owns it, what data it carries, and which schema version it uses. Any engineer can understand the full topic landscape at a glance.
+
+**ALEX:** And the version suffix — when do you increment that?
+
+**PRIYA:** When you have a **breaking schema change** — removing a field, changing a type, renaming a field. Instead of changing the schema in place and surprising consumers, you create a new topic version. Run both topics in parallel during the migration window. Migrate consumers one by one to the new topic. Once all consumers are migrated and validated, retire the old topic. Never break live consumers with a surprise schema change.
+
+**ALEX:** Let's talk offset resets. When do you need to reset consumer offsets?
+
+**PRIYA:** Two main scenarios. First: you fixed a bug in your processing logic and need to reprocess historical events with the corrected logic. Second: you're onboarding a new consumer group that needs to start from a historical point, not just the latest messages.
+
+**ALEX:** How do you do it safely?
+
+**PRIYA:** Using `kafka-consumer-groups.sh --reset-offsets`. Options: `--to-earliest` starts from the beginning of the retention window. `--to-latest` skips all existing messages. `--to-datetime "2025-11-14T14:00:00"` starts from a specific timestamp — hugely useful when you know exactly when a bug was introduced. `--to-offset` jumps to a specific numeric offset per partition.
+
+**ALEX:** Always dry run first?
+
+**PRIYA:** Always. Add `--dry-run` to see what the reset will do before committing. And critically: the consumer group must be completely stopped before you reset. Resetting an active group's offsets leads to unpredictable, dangerous behaviour — events processed by two consumers simultaneously, or skipped entirely. Stop first, reset second, restart third.
+
+**ALEX:** Let's revisit consumer group rebalancing. We mentioned the CooperativeStickyAssignor briefly. Why does it matter so much in production?
+
+**PRIYA:** The older EagerAssignors — Range and RoundRobin — do a full rebalance on any change: all consumers stop, all partition assignments are revoked, new assignments are distributed from scratch. This creates a group-wide processing pause on every rebalance event.
+
+**ALEX:** Which happens every time you deploy a new consumer instance, or one crashes, or you scale up.
+
+**PRIYA:** The **CooperativeStickyAssignor** changes this fundamentally. It's incremental: only the partitions that actually need to move are revoked. Consumers that keep their assignments keep processing throughout the rebalance. No group-wide pause. And "sticky" means assignments are stable across rebalances — if consumer A had partitions 0–3 before, it keeps them if possible. This is critical for KStreams applications because RocksDB state stores are co-located with partition assignments — stable assignments mean no state rebuild on rebalance.
+
+**ALEX:** This is the default in Kafka 3.1 and later?
+
+**PRIYA:** Yes. If you're on an older version, enable it explicitly. Don't accept group-wide processing pauses on every deployment if you don't have to.
+
+**ALEX:** Capacity planning. How do you actually size a Kafka cluster?
+
+**PRIYA:** Three dimensions. **Throughput**: multiply peak event rate by average message size. 100,000 trade events per second at 2KB each = 200MB/s ingress. With replication factor 3, your broker disks need to sustain 600MB/s write throughput. **Storage**: throughput × retention period × replication factor. For 7-day retention: 200MB/s × 604,800 seconds × 3 ≈ 360TB of raw disk. That drives your broker count and disk tier decision. **Consumer parallelism**: partition count must be ≥ the number of consumer instances you need to run at peak. You cannot parallelise more than the number of partitions.
+
+**ALEX:** And partition count recommendations?
+
+**PRIYA:** A practical heuristic: target 10–50MB/s per partition for comfortable headroom. But take the maximum of the throughput-driven count and your peak consumer instance count. If you'll run 30 consumer instances at peak, you need at least 30 partitions. And plan for future scale — increasing partitions later is operationally painful and breaks key-based ordering guarantees for existing data.
+
+**ALEX:** CI/CD for Kafka. What does a mature pipeline look like?
+
+**PRIYA:** Three tracks. **Cluster infrastructure**: broker configuration, topic creation, quota settings — managed as Infrastructure-as-Code with Terraform or Helm, with change review. No manual `kafka-topics.sh` commands in production.
+
+**ALEX:** Schema changes?
+
+**PRIYA:** Every schema change runs through a CI check: the proposed schema is registered against the Schema Registry in a staging environment and a compatibility check is run automatically. Backward-compatible — proceed. Breaking change — pipeline blocks, human must create a topic migration plan. This prevents accidental breaking changes from ever reaching live consumers.
+
+**ALEX:** Application deployments?
+
+**PRIYA:** Standard Kubernetes rolling deployments for consumer applications. The important addition: your deployment pipeline should verify consumer lag returns to near-zero within a few minutes of rollout, confirming the new version processes at the expected rate. If lag keeps growing after deployment — rollback automatically. Don't wait for a human to notice at 2 AM.
+
+**ALEX:** Health checks. We're running Kafka consumers in Kubernetes. How does Kubernetes know they're healthy?
+
+**PRIYA:** You expose a simple HTTP health endpoint from your application. The **liveness probe** checks: is the process alive and not stuck in an infinite loop or deadlocked? Return 200 OK if healthy. If the JVM is deadlocked or OOM-killed, the probe fails and Kubernetes restarts the pod.
+
+**ALEX:** And readiness?
+
+**PRIYA:** The **readiness probe** checks: is this consumer actually connected to Kafka and actively polling? A consumer might be alive but stuck in a rebalance, or waiting for the Schema Registry to become reachable. The readiness probe verifies the last successful `poll()` was within the last few seconds. If `max.poll.interval.ms` has been exceeded — meaning the consumer is too slow to poll and Kafka treats it as dead — the readiness probe should fail, signalling Kubernetes this pod needs to be recycled.
+
+**ALEX:** This enables self-healing without human intervention.
+
+**PRIYA:** Which in a 24/7 financial market infrastructure is essential. Proper liveness and readiness configuration, combined with idempotent processing, means Kubernetes handles most failure scenarios automatically and safely. You cannot have engineers manually restarting pods at 3 AM because a consumer thread got stuck.
+
+---
+
+**PRIYA:** Alex, everything we covered in these last four parts — this is what the "what I wish I knew before production" chapter looks like.
+
+**ALEX:** [laughs] Because it literally is. No tests — a fraud logic bug ran undetected for a week. No correlation IDs — 6 hours tracing one missing trade across five systems. No graceful shutdown config — offset duplication on every planned restart. No data validation — a bad upstream schema silently corrupted risk positions for 2 hours. No hot partition monitoring — AAPL earnings season hit and one consumer fell hours behind while the team had no idea.
+
+**PRIYA:** All avoidable. Every single one. The tools exist, the patterns are documented. The knowledge just has to be applied from day one, not retrofitted after the first major incident.
+
+**ALEX:** Which is exactly why we do this podcast.
+
+---
+
 ## 🎙️ OUTRO
 
 ---

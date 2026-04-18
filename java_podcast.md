@@ -1,18 +1,18 @@
 # ☕ Java Unlocked
-## *A Three-Episode Podcast Series — All 25 Essential Concepts*
+## *A Three-Episode Podcast Series — All 36 Essential Concepts*
 
 **Hosts:**
 - **Sam** — Junior developer, sharp questions, loves real-world analogies, learning in public
 - **Nadia** — Senior engineer with 12+ years of Java, explains deeply without being condescending
 
 **Format:** Conversational, analogy-driven, no assumed prior knowledge beyond basic coding
-**Total Duration:** ~3.5 hours across 3 episodes
+**Total Duration:** ~5 hours across 3 episodes
 
 ---
 
 # EPISODE 1: "The Building Blocks"
 ## Core Language Fundamentals & Concurrency
-### *Concepts 1–10*
+### *Concepts 1–13*
 
 ---
 
@@ -28,7 +28,7 @@
 
 **Sam:** I love that framing. Java is "explicit by design."
 
-**Nadia:** Exactly. And today we're going deep on what makes Java tick. We'll cover 25 essential concepts — split across three episodes. By the end, you'll have a genuine mental model of the language, not just a list of syntax to memorize.
+**Nadia:** Exactly. And today we're going deep on what makes Java tick. We'll cover 36 essential concepts — split across three episodes. By the end, you'll have a genuine mental model of the language, not just a list of syntax to memorize.
 
 **Sam:** Let's go. And Nadia — I want you to use analogies ruthlessly. No jargon without an explanation.
 
@@ -88,7 +88,50 @@
 
 ---
 
-## Concept 3: Exception Handling
+## Concept 3: Collections Framework
+
+**Sam:** Before we move further — can we talk about the actual Java collections? `ArrayList`, `HashMap`, `HashSet` — I use them constantly but I'm not always sure I'm picking the right one.
+
+**Nadia:** Great instinct to pause here. The Collections Framework is Java's built-in library of data structures. Knowing which to pick — based on what operations you need and their time complexity — is fundamental. Let me run through the most important ones.
+
+**Sam:** Starting with Lists?
+
+**Nadia:** **`ArrayList`** — backed by a resizable array. Random access by index is O(1) — lightning fast. Appending to the end is amortized O(1). But inserting or removing from the *middle* is O(n) — everything after the insertion point has to shift. Use it when you mostly read by index or append to the end.
+
+**`LinkedList`** — a doubly-linked list. Insertion and removal at the head or tail is O(1). But random access is O(n) — to get element 500, you walk from the beginning. In practice, `LinkedList` is rarely the right choice. Its memory overhead and cache unfriendliness makes it slower than `ArrayList` for most real-world use cases, despite the theoretical insert advantage.
+
+**Sam:** Rule of thumb — always `ArrayList` for lists?
+
+**Nadia:** Almost always. For maps — **`HashMap`** is O(1) average for get/put. The workhorse of Java. Keys are stored based on `hashCode()`. Two critical requirements: objects used as keys must have correct `equals()` and `hashCode()` implementations. If two equal objects have different hash codes, your keys will silently disappear.
+
+**`TreeMap`** keeps keys *sorted* — O(log n) for get/put. Use it when you need to iterate keys in order, or need `floorKey()`, `ceilingKey()`, or `subMap()`.
+
+**`LinkedHashMap`** maintains *insertion order*. Iteration is in the order you inserted. Great for building LRU caches (access-order mode) or when output order must match input order.
+
+**Sam:** And Sets?
+
+**Nadia:** Same pattern. **`HashSet`** — O(1) add/contains, no order. **`TreeSet`** — sorted, O(log n). **`LinkedHashSet`** — insertion-ordered. Sets are backed by their map equivalents — `HashSet` is literally a `HashMap` with dummy values.
+
+And one important one: **`ArrayDeque`** for stack and queue operations. Don't use the old `Stack` class — it extends `Vector`, which is synchronized with no benefit in modern code. `ArrayDeque` is faster and the right choice.
+
+**Sam:** `Comparable` vs `Comparator` — when sorting?
+
+**Nadia:** **`Comparable`** is implemented by the object itself — it defines the *natural ordering*. `String` implements `Comparable` — alphabetical order. `Integer` — numeric order. When your class has an obvious, single natural ordering, implement `Comparable<YourClass>`.
+
+**`Comparator`** is an *external* ordering strategy — you define it separately. Use it when the class isn't yours to modify, when you need multiple different orderings, or when you're sorting by a specific field. With Java 8 lambdas, it's beautifully concise:
+
+```java
+trades.sort(Comparator.comparing(Trade::getDate)
+                      .thenComparing(Trade::getValue));
+```
+
+**Sam:** Collections in one sentence?
+
+**Nadia:** `ArrayList` and `HashMap` cover 80% of cases — reach for sorted variants when order matters, concurrent variants when threads are involved.
+
+---
+
+## Concept 4: Exception Handling
 
 **Sam:** Exception handling. `try`, `catch`, `finally`. Seems straightforward but I hear people say it's commonly done wrong.
 
@@ -112,7 +155,7 @@
 
 ---
 
-## Concept 4: Immutability
+## Concept 5: Immutability
 
 **Sam:** Immutability. I hear this especially in the context of concurrency. What does it mean and why does it matter?
 
@@ -124,17 +167,17 @@
 
 **Sam:** How do you make something immutable in Java?
 
-**Nadia:** The classic way: declare your class `final` (so it can't be subclassed), make all fields `private final`, don't provide setters, and if any fields are mutable objects (like a `List`), store a *defensive copy* — not the original — and return a copy from any getter. 
+**Nadia:** The classic way: declare your class `final` (so it can't be subclassed), make all fields `private final`, don't provide setters, and if any fields are mutable objects (like a `List`), store a *defensive copy* — not the original — and return a copy from any getter.
 
 Modern Java gives us *Records* — which we'll discuss later — as a concise, built-in way to create immutable data carriers. And the `String` class in Java is the most famous example of an immutable class — every operation on a String returns a new String. The original never changes.
 
-**Sam:** Strings being immutable — is that why `String` in a `StringBuilder` is different?
+**Sam:** Strings being immutable — is that why `String` and `StringBuilder` are different?
 
 **Nadia:** Exactly. When you concatenate strings in a loop with `+`, you're creating a new String object on every iteration — very wasteful. `StringBuilder` is a *mutable* buffer that you append to, and you only create the final String at the end. Rule of thumb: use `String` for values you won't modify, `StringBuilder` when you're building a string dynamically.
 
 ---
 
-## Concept 5: Java Memory Model (JMM)
+## Concept 6: Java Memory Model (JMM)
 
 **Sam:** Java Memory Model. This feels like the kind of topic that gets really deep really fast.
 
@@ -174,7 +217,7 @@ The *Heap* is the shared memory pool where all objects live. When you do `new Do
 
 ---
 
-## Concept 6: Threads & ExecutorService
+## Concept 7: Threads & ExecutorService
 
 **Sam:** What's a thread?
 
@@ -203,7 +246,7 @@ pool.submit(() -> processTrade(trade));
 
 ---
 
-## Concept 7: Synchronization & Locks
+## Concept 8: Synchronization & Locks
 
 **Sam:** So multiple threads share the heap. What goes wrong?
 
@@ -235,7 +278,39 @@ It's like a bathroom with a single key — whoever has the key is inside; everyo
 
 ---
 
-## Concept 8: Concurrent Collections
+## Concept 9: ThreadLocal
+
+**Sam:** I've seen `ThreadLocal` in code — and you mentioned it in passing with the MDC logging setup. I've never fully understood what it actually is.
+
+**Nadia:** `ThreadLocal<T>` gives each thread its *own private copy* of a variable. Think of it like a locker room — every person (thread) has their own locker (ThreadLocal storage). They all use lockers, but nobody can access anyone else's. The variable exists once per thread, not once globally.
+
+**Sam:** When would you need that?
+
+**Nadia:** Classic example: a web server handling multiple requests concurrently. Each request runs in its own thread. You want to store the currently logged-in user for the duration of that request — accessible from anywhere in the call stack — without passing it as a parameter through every method. `ThreadLocal` is perfect:
+
+```java
+public class UserContext {
+    private static final ThreadLocal<User> currentUser = new ThreadLocal<>();
+
+    public static void set(User user)  { currentUser.set(user); }
+    public static User get()           { return currentUser.get(); }
+    public static void clear()         { currentUser.remove(); }
+}
+```
+
+Any code running in that thread can call `UserContext.get()` and get the right user — no parameter passing needed.
+
+**Sam:** What's the big warning with ThreadLocal?
+
+**Nadia:** **Memory leaks in thread pools.** When you use a thread pool — like in Spring — threads are *reused* across requests. If you set a ThreadLocal value at the start of a request but forget to call `remove()` when the request ends, that value lives on in the thread indefinitely. The next request that runs on that thread will see *stale data from the previous request*. Always clear ThreadLocals in a `finally` block or in a servlet filter after the request completes.
+
+**Sam:** MDC uses ThreadLocal under the hood?
+
+**Nadia:** Exactly — that's how MDC attaches your `tradeId` and `correlationId` to every log line without you explicitly passing them around. The logging framework reads the ThreadLocal map automatically. Same pattern is used by Spring's `SecurityContextHolder` (stores the current authenticated user), JPA's per-thread `EntityManager` binding, and many other framework features. It's a pervasive pattern once you know to look for it.
+
+---
+
+## Concept 10: Concurrent Collections
 
 **Sam:** If regular collections like `ArrayList` and `HashMap` aren't thread-safe, what do you use in multi-threaded code?
 
@@ -259,7 +334,7 @@ It's like a bathroom with a single key — whoever has the key is inside; everyo
 
 ---
 
-## Concept 9: CompletableFuture
+## Concept 11: CompletableFuture
 
 **Sam:** You mentioned `CompletableFuture` as the modern replacement for `Future`. What makes it better?
 
@@ -270,14 +345,14 @@ It's like a bathroom with a single key — whoever has the key is inside; everyo
 **Nadia:** Sure. You need to fetch a customer's profile, fetch their trade history, and then combine them — two independent network calls that can happen in parallel.
 
 ```java
-CompletableFuture<Customer> customerFuture = 
+CompletableFuture<Customer> customerFuture =
     CompletableFuture.supplyAsync(() -> fetchCustomer(id));
 
-CompletableFuture<List<Trade>> tradesFuture = 
+CompletableFuture<List<Trade>> tradesFuture =
     CompletableFuture.supplyAsync(() -> fetchTrades(id));
 
-CompletableFuture<CustomerSummary> result = 
-    customerFuture.thenCombine(tradesFuture, 
+CompletableFuture<CustomerSummary> result =
+    customerFuture.thenCombine(tradesFuture,
         (customer, trades) -> buildSummary(customer, trades));
 ```
 
@@ -300,9 +375,9 @@ CompletableFuture.supplyAsync(() -> fetchRiskScore(trade))
 
 ---
 
-## Concept 10: Atomic Variables
+## Concept 12: Atomic Variables
 
-**Sam:** Last concurrency concept — atomic variables. `AtomicInteger`, `AtomicReference`. What are these?
+**Sam:** Atomic variables — `AtomicInteger`, `AtomicReference`. What are these?
 
 **Nadia:** They're a way to do simple, thread-safe operations *without locking*. Remember our counter race condition? The typical fix is `synchronized increment()`. But synchronization has overhead — acquiring and releasing a lock takes time. For simple operations like incrementing a counter, there's a cheaper alternative: *Compare-and-Swap* (CAS), a CPU-level instruction.
 
@@ -320,7 +395,44 @@ CompletableFuture.supplyAsync(() -> fetchRiskScore(trade))
 
 ---
 
-**Sam:** Okay, Episode 1 recap. Five core language concepts: OOP (the four pillars), Generics (type safety + reusability), Exception Handling (checked vs unchecked, try-with-resources), Immutability (thread safety + predictability), and the JMM (heap, stack, GC). Then five concurrency concepts: ExecutorService (thread pools), Synchronization (locks, monitors), Concurrent Collections (ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue), CompletableFuture (async pipelines), and Atomic Variables (lock-free CAS operations).
+## Concept 13: Virtual Threads (Java 21)
+
+**Sam:** You've described the thread pool model — create a fixed pool, submit tasks. But I've heard Java 21 changes the game entirely with virtual threads?
+
+**Nadia:** This is Project Loom, and it's genuinely transformative. Let me explain the problem first. Traditional Java threads — called *platform threads* — are essentially wrappers around OS threads. Creating one costs significant memory (typically 1 MB of stack space). A JVM can realistically support maybe tens of thousands of them before you run out of resources. In a high-throughput server handling many concurrent requests, this is a hard ceiling.
+
+**Sam:** And the fix before virtual threads was reactive programming?
+
+**Nadia:** Reactive and async code with `CompletableFuture`, RxJava, Project Reactor. It works, but at a real cost: your code becomes non-linear, callback-based, and much harder to reason about. Stack traces become meaningless. Debugging is painful. You're essentially writing state machines by hand.
+
+**Sam:** So virtual threads fix this?
+
+**Nadia:** Virtual threads are managed by the JVM, not the OS. They're *extremely* cheap to create — you can run *millions* of them. When a virtual thread blocks on I/O — waiting for a database response, a network call, a file read — the JVM *unmounts* it from its underlying OS thread and mounts something else. The OS thread never sits idle; it's always doing useful work.
+
+```java
+// Before: a fixed thread pool caps your concurrency
+ExecutorService pool = Executors.newFixedThreadPool(200);
+
+// Java 21: one virtual thread per task — scales to millions
+ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor();
+virtual.submit(() -> handleRequest(request));
+```
+
+**Sam:** The same blocking code, but it scales like async?
+
+**Nadia:** Exactly. You write simple, linear, blocking code — easy to read, easy to debug, normal stack traces — and the JVM handles the multiplexing under the hood. For I/O-bound applications like web servers and microservices, virtual threads deliver near-reactive throughput with none of the complexity.
+
+**Sam:** Are there limitations?
+
+**Nadia:** A few. The main one is *pinning* — if a virtual thread holds a `synchronized` lock and then blocks on I/O, it can't be unmounted; it pins the underlying OS thread for the duration. The fix is to prefer `ReentrantLock` over `synchronized` in I/O-bound code paths. Virtual threads also don't help with CPU-bound work — if your thread is actually computing rather than waiting, there's nothing to unmount. For CPU-heavy tasks, a fixed thread pool sized to your CPU core count is still the right model.
+
+**Sam:** Virtual threads in one sentence?
+
+**Nadia:** Write simple blocking code, run millions of threads — the JVM handles the rest.
+
+---
+
+**Sam:** Episode 1 recap. Six core language concepts: OOP (the four pillars), Generics (type safety + reusability), Collections Framework (ArrayList, HashMap, Comparable vs Comparator), Exception Handling (checked vs unchecked, try-with-resources), Immutability (thread safety + predictability), and the JMM (heap, stack, GC, happens-before). Then seven concurrency concepts: ExecutorService (thread pools), Synchronization (locks, monitors), ThreadLocal (per-thread state, watch for leaks in pools), Concurrent Collections (ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue), CompletableFuture (async pipelines), Atomic Variables (lock-free CAS operations), and Virtual Threads (millions of cheap threads, write blocking code that scales).
 
 **Nadia:** Perfect. Next episode — we get into architecture and the modern, expressive Java that makes the language genuinely beautiful.
 
@@ -332,7 +444,7 @@ CompletableFuture.supplyAsync(() -> fetchRiskScore(trade))
 
 # EPISODE 2: "Design & Modern Java"
 ## Architecture Patterns + Modern Language Features
-### *Concepts 11–19*
+### *Concepts 14–28*
 
 ---
 
@@ -350,7 +462,7 @@ CompletableFuture.supplyAsync(() -> fetchRiskScore(trade))
 
 ---
 
-## Concept 11: Design Patterns
+## Concept 14: Design Patterns
 
 **Sam:** Design patterns. Gang of Four. I've heard the term but "Singleton", "Factory", "Observer" feel like abstract concepts that I can never quite connect to real code.
 
@@ -399,7 +511,7 @@ Readable, named, and order-independent.
 
 ---
 
-## Concept 12: SOLID Principles
+## Concept 15: SOLID Principles
 
 **Sam:** SOLID. Five principles. I know the acronym but let me hear them explained like they actually matter.
 
@@ -423,7 +535,7 @@ Readable, named, and order-independent.
 
 ---
 
-## Concept 13: Dependency Injection (DI)
+## Concept 16: Dependency Injection (DI)
 
 **Sam:** Dependency Injection — DI. Spring uses this everywhere. But what is it fundamentally?
 
@@ -437,7 +549,7 @@ Without DI:
 ```java
 public class TradeService {
     private TradeRepository repo = new OracleTradeRepository(); // hardcoded!
-    
+
     public void saveTrade(Trade t) { repo.save(t); }
 }
 ```
@@ -448,11 +560,11 @@ With DI:
 ```java
 public class TradeService {
     private final TradeRepository repo;
-    
+
     public TradeService(TradeRepository repo) { // injected!
         this.repo = repo;
     }
-    
+
     public void saveTrade(Trade t) { repo.save(t); }
 }
 ```
@@ -469,7 +581,54 @@ Now you can inject a `MockTradeRepository` in tests. You can inject `PostgresTra
 
 ---
 
-## Concept 14: Interfaces & Abstract Classes
+## Concept 17: Annotations & Reflection
+
+**Sam:** Annotations — the `@` things. `@Override`, `@SpringBootApplication`, `@Test`. I use them constantly but I genuinely don't know how they actually *work* under the hood.
+
+**Nadia:** Annotations are *metadata* — information you attach to code elements (classes, methods, fields, parameters) that can be read at compile time or runtime. They don't change what your code *does* directly — they're instructions for tools, frameworks, and the compiler.
+
+**Sam:** What are the main categories?
+
+**Nadia:** Three categories. **Compiler annotations** — like `@Override` (the compiler verifies you're actually overriding a parent method), `@SuppressWarnings`, `@Deprecated`. These are processed at compile time and not present at runtime.
+
+**Framework annotations** — like `@Service`, `@Autowired`, `@Transactional`, `@Test`. These are present at runtime and read by frameworks using *reflection*.
+
+**Custom annotations** — you can define your own:
+
+```java
+@Retention(RetentionPolicy.RUNTIME)  // available at runtime
+@Target(ElementType.METHOD)          // can only annotate methods
+public @interface AuditLog {
+    String action() default "UNKNOWN";
+}
+```
+
+**Sam:** And Reflection — how does Spring actually *read* those annotations?
+
+**Nadia:** Reflection is the Java API for inspecting and interacting with code *at runtime*. You can ask: what class is this object? What fields does it have? What methods? What annotations are present? And you can invoke methods dynamically without knowing them at compile time.
+
+```java
+// Spring does something like this internally:
+for (Method method : tradeService.getClass().getDeclaredMethods()) {
+    if (method.isAnnotationPresent(AuditLog.class)) {
+        AuditLog annotation = method.getAnnotation(AuditLog.class);
+        System.out.println("Auditing: " + annotation.action());
+        // wrap the method call with audit logic
+    }
+}
+```
+
+**Sam:** So every Spring bean, every `@Transactional` method, every `@Test` — they're all found via reflection scanning annotations?
+
+**Nadia:** Yes. Spring scans your classpath at startup, finds classes annotated with `@Component`, `@Service`, etc., creates instances, finds `@Autowired` constructors, wires dependencies — all via reflection. JUnit finds `@Test` methods via reflection. Jackson reads `@JsonProperty` annotations via reflection to map JSON fields.
+
+**Sam:** Is reflection slow?
+
+**Nadia:** It's slower than direct method calls — it bypasses JIT optimizations and involves metadata lookups. But frameworks do this at startup or once per class, caching the results. The actual request processing doesn't use raw reflection on every call. In modern Java, some frameworks — Micronaut, Quarkus — are moving toward compile-time annotation processing to avoid runtime reflection entirely, which is why they have faster startup times and lower memory usage.
+
+---
+
+## Concept 18: Interfaces & Abstract Classes
 
 **Sam:** Interfaces and abstract classes. When do you use which?
 
@@ -491,17 +650,87 @@ Use an abstract class when you have a *family* of related things that share sign
 
 ---
 
+## Concept 19: Enums
+
+**Sam:** Enums — I know they're named constants. But you said Java enums are more powerful than enums in most other languages?
+
+**Nadia:** Much more powerful. A Java enum is a full class — it can have fields, methods, constructors, and even abstract methods. Let me show you the progression.
+
+**Sam:** Basic enum first.
+
+**Nadia:**
+```java
+public enum TradeStatus { PENDING, ACTIVE, SETTLED, CANCELLED }
+```
+
+Simple named constants. The compiler prevents invalid values — no magic strings, no magic integers. Used in switch statements and comparisons. Already better than string or integer constants.
+
+**Sam:** Now adding fields and methods.
+
+**Nadia:**
+```java
+public enum Side {
+    BUY("B", true),
+    SELL("S", false);
+
+    private final String code;
+    private final boolean increasesPosition;
+
+    Side(String code, boolean increasesPosition) {
+        this.code = code;
+        this.increasesPosition = increasesPosition;
+    }
+
+    public String getCode()            { return code; }
+    public boolean increasesPosition() { return increasesPosition; }
+}
+```
+
+Each constant carries its own data. `Side.BUY.getCode()` returns `"B"`. No external lookup table needed.
+
+**Sam:** And abstract methods?
+
+**Nadia:** This is where it gets elegant. Each enum constant can override a method differently:
+
+```java
+public enum RiskLevel {
+    LOW {
+        @Override public BigDecimal getMultiplier() { return BigDecimal.ONE; }
+    },
+    MEDIUM {
+        @Override public BigDecimal getMultiplier() { return BigDecimal.valueOf(1.5); }
+    },
+    HIGH {
+        @Override public BigDecimal getMultiplier() { return BigDecimal.valueOf(2.0); }
+    };
+
+    public abstract BigDecimal getMultiplier();
+}
+```
+
+Effectively a Strategy pattern built into the type. Each enum constant *is* its own strategy. No switch statement needed, and adding a new `RiskLevel` forces you to implement `getMultiplier()` — the compiler enforces it.
+
+**Sam:** And Enum as a Singleton?
+
+**Nadia:** Earlier I mentioned the enum singleton is the gold standard. Java guarantees an enum constant is instantiated exactly once — it's thread-safe and handles serialization correctly. You can't accidentally create a second instance even through reflection or deserialization. Cleanest singleton implementation in Java.
+
+**Sam:** Any performance utilities worth knowing?
+
+**Nadia:** **`EnumSet`** and **`EnumMap`** — specialized, extremely efficient implementations backed by bit vectors internally. If you're working with a set or map whose keys are enum values, always prefer these over `HashSet` and `HashMap`. Significantly faster and more memory-efficient because they exploit the fact that enum constants have a known, fixed universe.
+
+---
+
 ## PART 4: MODERN JAVA FEATURES
 
 ---
 
 **Sam:** Alright, Part 4 — modern Java. Java 8 was the big turning point, right?
 
-**Nadia:** Seismic shift. Java 8 introduced lambdas and streams and fundamentally changed how Java developers write code. Then Java 14+ brought records. Java 17 brought sealed classes. Modern Java is actually a pleasure to write.
+**Nadia:** Seismic shift. Java 8 introduced lambdas and streams and fundamentally changed how Java developers write code. Then Java 10 brought `var`. Java 14 brought switch expressions and records. Java 15 brought text blocks. Java 16 brought pattern matching. Java 17 brought sealed classes. Java 21 brought virtual threads — which we already covered. Modern Java is a genuinely different language from the Java of 2010.
 
 ---
 
-## Concept 15: Streams API
+## Concept 20: Streams API
 
 **Sam:** Streams API. I know it involves `.stream()`, `.filter()`, `.map()`, `.collect()`. Explain the *idea* behind it.
 
@@ -528,7 +757,7 @@ You're describing *what* you want — filter, sort, map, collect. The *how* is h
 
 ---
 
-## Concept 16: Optional
+## Concept 21: Optional
 
 **Sam:** Null. The billion-dollar mistake, Tony Hoare called it. How does `Optional` help?
 
@@ -536,7 +765,7 @@ You're describing *what* you want — filter, sort, map, collect. The *how* is h
 
 **Sam:** How do you use it?
 
-**Nadia:** 
+**Nadia:**
 
 ```java
 Optional<Trade> maybeTrade = tradeRepository.findById(id);
@@ -553,7 +782,7 @@ maybeTrade
     .ifPresent(value -> notify(value));
 
 // With default:
-Trade trade = maybeTrade.orElse(defaultTrade);
+Trade trade  = maybeTrade.orElse(defaultTrade);
 Trade trade2 = maybeTrade.orElseGet(() -> createDefault()); // lazy
 Trade trade3 = maybeTrade.orElseThrow(() -> new TradeNotFoundException(id));
 ```
@@ -564,7 +793,7 @@ Trade trade3 = maybeTrade.orElseThrow(() -> new TradeNotFoundException(id));
 
 ---
 
-## Concept 17: Lambdas & Functional Interfaces
+## Concept 22: Lambdas & Functional Interfaces
 
 **Sam:** Lambdas. The arrow syntax. `(x) -> x * 2`. What's actually happening?
 
@@ -610,7 +839,181 @@ The `::` form is cleaner when applicable. Use whichever is more readable.
 
 ---
 
-## Concept 18: Records
+## Concept 23: var — Local Variable Type Inference (Java 10)
+
+**Sam:** `var` — Java 10. I see it in modern code and it makes me nervous. Doesn't it make Java dynamically typed?
+
+**Nadia:** No — and this is the most important thing to understand about `var`. Java is *still* statically typed. The compiler infers the type from the right-hand side at compile time. At runtime, there is zero difference. `var` is purely a convenience — you're telling the compiler "you already know what type this is, you fill it in."
+
+```java
+// These are identical at the bytecode level:
+Map<String, List<Trade>> tradesByDesk = new HashMap<String, List<Trade>>();
+var tradesByDesk = new HashMap<String, List<Trade>>();
+```
+
+**Sam:** So when should you use it?
+
+**Nadia:** When the type is *obvious from the right-hand side* and repeating it adds no clarity. In the example above, writing `HashMap<String, List<Trade>>` twice is pure noise. With `var`, the declaration is shorter without being less readable.
+
+Avoid `var` when the type isn't immediately obvious from context:
+
+```java
+var result = service.process(request); // what type is result? unclear — don't do this
+```
+
+Here you'd want the explicit type for the next reader. And `var` is only for *local variables* — not method parameters, return types, or fields. It's not Python's dynamic typing. Think of it more like C++'s `auto` — the compiler knows the type, you're just not writing it twice.
+
+---
+
+## Concept 24: Text Blocks (Java 15)
+
+**Sam:** Text blocks — I've seen triple quotes. What problem do they solve?
+
+**Nadia:** Before text blocks, embedding multi-line strings in Java — SQL queries, JSON payloads, HTML templates — was genuinely painful. You'd concatenate strings with `\n` and `\"` escape sequences everywhere:
+
+```java
+// Pre-Java 15 — painful
+String sql = "SELECT t.id, t.value, c.name\n" +
+             "FROM trades t\n" +
+             "JOIN customers c ON t.customer_id = c.id\n" +
+             "WHERE t.status = 'ACTIVE'\n" +
+             "ORDER BY t.created_at DESC";
+```
+
+With text blocks:
+```java
+// Java 15+ — clean
+String sql = """
+        SELECT t.id, t.value, c.name
+        FROM trades t
+        JOIN customers c ON t.customer_id = c.id
+        WHERE t.status = 'ACTIVE'
+        ORDER BY t.created_at DESC
+        """;
+```
+
+**Sam:** The indentation — does it include the leading spaces?
+
+**Nadia:** Java is smart about this. The position of the closing `"""` determines the baseline indentation — any leading whitespace common to all lines is stripped automatically. What you see in the source is what you get in the string. No accidental leading spaces, no ugly `\n` stitching.
+
+**Sam:** Most useful for?
+
+**Nadia:** SQL queries, JSON payloads in tests, HTML email templates, multiline error messages. Any place you'd previously fight with string concatenation. It's a small feature but it eliminates a surprising amount of visual noise from real codebases.
+
+---
+
+## Concept 25: Switch Expressions (Java 14)
+
+**Sam:** Switch expressions — Java 14. How is this different from the switch statement I already know?
+
+**Nadia:** The old `switch` statement had two painful problems. First: *fall-through* — if you forget a `break`, execution silently continues into the next case. This is one of the most classic Java bug sources. Second: it's a *statement*, not an *expression* — you can't directly assign the result of a switch to a variable.
+
+Switch expressions fix both:
+
+```java
+// Old switch — fall-through risk, verbose
+String description;
+switch (tradeStatus) {
+    case PENDING:
+        description = "Not yet processed";
+        break;
+    case ACTIVE:
+        description = "In flight";
+        break;
+    default:
+        description = "Unknown";
+}
+
+// New switch expression — concise, no fall-through, assignable
+String description = switch (tradeStatus) {
+    case PENDING   -> "Not yet processed";
+    case ACTIVE    -> "In flight";
+    case SETTLED   -> "Complete";
+    case CANCELLED -> "Voided";
+};
+```
+
+**Sam:** The arrow syntax prevents fall-through?
+
+**Nadia:** Automatically — each `->` arm is independent, no fall-through possible. And when combined with sealed classes or enums, the compiler enforces *exhaustiveness* — you must handle every case, or it won't compile. No `default` needed if all cases are covered.
+
+**Sam:** What about when an arm needs multiple lines?
+
+**Nadia:** Use a block with `yield` to return the value:
+
+```java
+String description = switch (tradeStatus) {
+    case PENDING -> "Not yet processed";
+    case ACTIVE  -> {
+        log.info("Active trade queried");
+        yield "In flight";  // yield returns the value from the block
+    }
+    case SETTLED   -> "Complete";
+    case CANCELLED -> "Voided";
+};
+```
+
+**Sam:** Switch expressions in one sentence?
+
+**Nadia:** Arrow syntax, no fall-through, assignable as an expression — modern switch is strictly better than the old form for most uses.
+
+---
+
+## Concept 26: Pattern Matching for instanceof (Java 16)
+
+**Sam:** `instanceof` pattern matching — I've seen `if (obj instanceof String s)`. What's the `s` doing there?
+
+**Nadia:** Before Java 16, checking and then using a type required two separate steps — the `instanceof` check, then an explicit cast:
+
+```java
+// Old way — redundant cast
+if (instrument instanceof Equity) {
+    Equity equity = (Equity) instrument;  // you already checked! why cast again?
+    process(equity.getTicker());
+}
+```
+
+Pattern matching combines the check and the binding into one step:
+
+```java
+// Java 16+ — check and bind together
+if (instrument instanceof Equity equity) {
+    process(equity.getTicker());  // equity is already correctly typed
+}
+```
+
+The variable `equity` is in scope *and* correctly typed inside the if block. No cast needed — the compiler knows.
+
+**Sam:** And this extends to switch?
+
+**Nadia:** Java 21 brought full pattern matching in switch expressions:
+
+```java
+String describe(FinancialInstrument instrument) {
+    return switch (instrument) {
+        case Equity e    -> "Stock: " + e.getTicker();
+        case Bond b      -> "Bond yield: " + b.getYield();
+        case Derivative d -> "Derivative on: " + d.getUnderlying();
+    };
+}
+```
+
+This is the payoff we'll see again with sealed classes — exhaustive pattern matching in switch, each arm binding the specific subtype. It's the Java equivalent of Rust's `match` or Haskell's pattern matching. Much cleaner than long chains of `instanceof` checks.
+
+**Sam:** Guards — can you add conditions to the cases?
+
+**Nadia:** Yes, with `when`:
+
+```java
+case Equity e when e.getPrice().compareTo(PENNY_STOCK_THRESHOLD) < 0 -> "Penny stock";
+case Equity e -> "Regular stock: " + e.getTicker();
+```
+
+The `when` clause adds a guard condition — the case only matches if the type matches *and* the guard is true. The compiler checks that all combinations are covered. It's extremely expressive for domain modeling.
+
+---
+
+## Concept 27: Records (Java 14)
 
 **Sam:** Records — Java 14. I've seen them described as "data classes." What problem do they solve?
 
@@ -633,25 +1036,25 @@ That's it. One line. Java automatically generates: a constructor accepting all f
 
 ---
 
-## Concept 19: Sealed Classes
+## Concept 28: Sealed Classes (Java 17)
 
 **Sam:** Sealed classes — Java 17. I've heard this is related to exhaustive pattern matching?
 
-**Nadia:** Exactly. Sealed classes let you *restrict which classes can extend or implement* a type. And paired with pattern matching and `switch` expressions, they're incredibly powerful.
+**Nadia:** Exactly. Sealed classes let you *restrict which classes can extend or implement* a type. And paired with pattern matching and switch expressions, they're incredibly powerful.
 
 **Sam:** Give me an example.
 
 **Nadia:** Imagine you're modeling financial instruments. A `FinancialInstrument` can be an `Equity`, a `Bond`, or a `Derivative`. With a sealed interface:
 
 ```java
-public sealed interface FinancialInstrument 
+public sealed interface FinancialInstrument
     permits Equity, Bond, Derivative {}
 
-public record Equity(String ticker, BigDecimal price) 
+public record Equity(String ticker, BigDecimal price)
     implements FinancialInstrument {}
-public record Bond(String issuer, BigDecimal yield) 
+public record Bond(String issuer, BigDecimal yield)
     implements FinancialInstrument {}
-public record Derivative(String underlying, String type) 
+public record Derivative(String underlying, String type)
     implements FinancialInstrument {}
 ```
 
@@ -675,9 +1078,9 @@ No `default` clause needed — the compiler knows all cases are covered.
 
 ---
 
-**Sam:** Episode 2 recap. Design patterns: Singleton, Factory, Builder, Strategy, Observer, Decorator — each solving a specific recurring design problem. SOLID principles: the five rules of clean, maintainable OO design. Dependency Injection: receive dependencies from outside rather than creating them — enables testability and flexibility. Interfaces vs Abstract Classes: interfaces for contracts and capability, abstract classes for shared implementation hierarchies.
+**Sam:** Episode 2 recap. Design section: Design Patterns (Singleton, Factory, Builder, Strategy, Observer, Decorator), SOLID Principles (the five rules of clean OO design), Dependency Injection (receive dependencies, don't create them — enables testability), Annotations & Reflection (how frameworks read metadata at runtime), Interfaces & Abstract Classes (contracts vs shared implementation, favour composition), and Enums (full classes — fields, methods, abstract methods, EnumSet/EnumMap for performance).
 
-Then modern Java: Streams API for declarative, composable data processing. Optional for making nullability explicit and safe. Lambdas and Functional Interfaces for concise, expressive behaviour-passing. Records for concise immutable data carriers. Sealed classes for restricted, exhaustively-checkable type hierarchies.
+Then modern Java: Streams API (declarative composable processing), Optional (explicit nullability), Lambdas & Functional Interfaces (Predicate, Function, Consumer, Supplier), `var` (type inference — still statically typed, just less writing), Text Blocks (clean multiline strings), Switch Expressions (no fall-through, assignable, exhaustive), Pattern Matching for instanceof (check and bind in one step, switch patterns with guards), Records (concise immutable data carriers), and Sealed Classes (restricted hierarchies, compiler-enforced exhaustiveness).
 
 **Nadia:** That was a lot and it was beautiful. Episode 3 — we get practical. I/O, databases, testing, and keeping your Java app alive in production.
 
@@ -689,7 +1092,7 @@ Then modern Java: Streams API for declarative, composable data processing. Optio
 
 # EPISODE 3: "Production-Ready Java"
 ## I/O, Persistence, Testing & JVM Operations
-### *Concepts 20–25*
+### *Concepts 29–36*
 
 ---
 
@@ -707,7 +1110,7 @@ Then modern Java: Streams API for declarative, composable data processing. Optio
 
 ---
 
-## Concept 20: JDBC & Connection Pooling
+## Concept 29: JDBC & Connection Pooling
 
 **Sam:** JDBC — Java Database Connectivity. The way Java talks to databases. What do you need to know beyond "it exists"?
 
@@ -750,13 +1153,82 @@ Connection pooling pre-creates a pool of open connections and reuses them. When 
 
 ---
 
-## Concept 21: Serialization
+## Concept 30: JPA & Hibernate
+
+**Sam:** We just covered JDBC — the low-level database API. But in practice, most Java apps I see use JPA and Hibernate. What's the relationship between them?
+
+**Nadia:** **JPA** — Java Persistence API — is the *specification*: a set of interfaces and annotations that define how Java objects map to database tables. **Hibernate** is the most popular *implementation* of that specification. Think of JPA as the interface, Hibernate as the implementation — same as SLF4J and Logback for logging.
+
+**Sam:** What does it give you over raw JDBC?
+
+**Nadia:** The core idea: *object-relational mapping* — ORM. Instead of writing SQL manually and mapping `ResultSet` rows to objects by hand, you annotate your Java classes and Hibernate generates the SQL for you.
+
+```java
+@Entity
+@Table(name = "trades")
+public class Trade {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "trade_symbol")
+    private String symbol;
+
+    @ManyToOne
+    @JoinColumn(name = "customer_id")
+    private Customer customer;
+
+    // constructors, getters...
+}
+```
+
+Now you can do:
+```java
+Trade trade = entityManager.find(Trade.class, 1L);  // SELECT by id — no SQL
+entityManager.persist(newTrade);                    // INSERT — no SQL
+entityManager.remove(trade);                        // DELETE — no SQL
+```
+
+**Sam:** Spring Data JPA takes this even further?
+
+**Nadia:** Dramatically further. With Spring Data, you define a repository interface and Spring *generates the implementation*:
+
+```java
+public interface TradeRepository extends JpaRepository<Trade, Long> {
+    List<Trade> findBySymbolAndStatus(String symbol, TradeStatus status);
+    Optional<Trade> findByExternalId(String externalId);
+}
+```
+
+Spring reads the method names and generates the JPQL query automatically. `findBySymbolAndStatus` becomes `SELECT t FROM Trade t WHERE t.symbol = ? AND t.status = ?`. You never write the query — you just name the method correctly.
+
+**Sam:** The N+1 problem — this comes up constantly in JPA discussions.
+
+**Nadia:** The classic JPA trap. Suppose a `Customer` has a list of `Trade` objects — a `@OneToMany` relationship. If you fetch 100 customers and then access each customer's trades, with lazy loading (the default), Hibernate runs 1 query for the customers, then *100 additional queries* — one per customer — to fetch their trades. That's N+1 queries instead of 1 join. Everything looks fine in development with 5 customers; it destroys your database in production with 10,000.
+
+```java
+// Fix: use JOIN FETCH to load everything in one query
+@Query("SELECT c FROM Customer c LEFT JOIN FETCH c.trades WHERE c.active = true")
+List<Customer> findActiveCustomersWithTrades();
+```
+
+**Sam:** `@Transactional` — what's actually happening when Spring sees that annotation?
+
+**Nadia:** Spring wraps your method in a database transaction — all database operations within it either succeed together or roll back together. Without `@Transactional`, each JDBC operation is its own auto-committed transaction. With it, if an exception is thrown midway — after the first insert but before the second — everything rolls back. Spring uses a proxy (via reflection and the Decorator pattern, actually) to wrap your method with transaction begin/commit/rollback logic invisibly.
+
+**Sam:** When should you *not* use JPA?
+
+**Nadia:** For bulk operations — updating a million rows. JPA loads objects into memory, modifies them, writes them back — catastrophically slow for batch work. Raw JDBC or native SQL queries are orders of magnitude faster for bulk processing. JPA shines for CRUD operations on individual entities; it struggles with set-based bulk operations. Know when to drop down to a native query.
+
+---
+
+## Concept 31: Serialization
 
 **Sam:** Serialization — converting objects to bytes and back. JSON is the obvious case, but there's more to it?
 
 **Nadia:** Much more. Let's separate two things: *Java native serialization* and *external format serialization*.
 
-**Java native serialization** — implementing the `Serializable` interface — lets the JVM convert objects to a byte stream for storage or transmission. You've seen it with `ObjectOutputStream` and `ObjectInputStream`. It works, but it's considered problematic: it's brittle (any change to the class can break deserialization of old data), it's not human-readable, and it has security vulnerabilities — deserializing untrusted data can execute arbitrary code. Avoid it for anything user-facing or stored long-term.
+**Java native serialization** — implementing the `Serializable` interface — lets the JVM convert objects to a byte stream for storage or transmission. You've seen it with `ObjectOutputStream` and `ObjectInputStream`. It works, but it's considered problematic: it's brittle (any change to the class can break deserialization of old data), it's not human-readable, and it has serious security vulnerabilities — deserializing untrusted data can execute arbitrary code. Avoid it for anything user-facing or stored long-term.
 
 **Sam:** So what should you use instead?
 
@@ -776,11 +1248,11 @@ Customize behaviour with annotations: `@JsonProperty` to rename a field, `@JsonI
 
 **Sam:** And Protobuf/Avro — when do you use those over JSON?
 
-**Nadia:** JSON is human-readable, easy to debug, universally supported — ideal for REST APIs and anywhere humans might need to inspect the data. Protobuf and Avro are *binary formats* — more compact, faster to serialize/deserialize, with schema enforcement. Use them for high-throughput inter-service communication (like Kafka messages at scale) where performance matters more than readability. We covered this in the Kafka and Flink podcasts in detail.
+**Nadia:** JSON is human-readable, easy to debug, universally supported — ideal for REST APIs and anywhere humans might need to inspect the data. Protobuf and Avro are *binary formats* — more compact, faster to serialize/deserialize, with schema enforcement. Use them for high-throughput inter-service communication (like Kafka messages at scale) where performance matters more than readability.
 
 ---
 
-## Concept 22: NIO & File I/O
+## Concept 32: NIO & File I/O
 
 **Sam:** NIO — `java.nio`. Java "New I/O." What's wrong with the old `java.io`?
 
@@ -829,11 +1301,62 @@ Files.walk(Path.of("/data")).filter(Files::isRegularFile).forEach(...);
 
 ---
 
+## Concept 33: HTTP Client (Java 11)
+
+**Sam:** Microservices call each other over HTTP constantly. What's the modern way to do that in Java without pulling in a third-party library?
+
+**Nadia:** Before Java 11, the built-in `HttpURLConnection` was infamously awkward to use. Most teams reached for Apache HttpClient or OkHttp. Java 11 fixed this with `java.net.http.HttpClient` — a modern, fluent API supporting both HTTP/1.1 and HTTP/2, with both synchronous and async modes built in.
+
+**Sam:** Basic usage?
+
+**Nadia:**
+```java
+HttpClient client = HttpClient.newBuilder()
+    .connectTimeout(Duration.ofSeconds(10))
+    .build();
+
+HttpRequest request = HttpRequest.newBuilder()
+    .uri(URI.create("https://api.internal/trades/" + tradeId))
+    .header("Authorization", "Bearer " + token)
+    .timeout(Duration.ofSeconds(30))
+    .GET()
+    .build();
+
+HttpResponse<String> response = client.send(request,
+    HttpResponse.BodyHandlers.ofString());
+
+int status = response.statusCode();
+String body = response.body();
+```
+
+**Sam:** And async calls?
+
+**Nadia:** `sendAsync()` returns a `CompletableFuture` — it plugs directly into the async pipeline patterns we covered in Episode 1:
+
+```java
+CompletableFuture<TradeDTO> tradeFuture = client
+    .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+    .thenApply(HttpResponse::body)
+    .thenApply(json -> mapper.readValue(json, TradeDTO.class));
+```
+
+Non-blocking HTTP call, result handled when it arrives, fully composable with `thenCombine`, `thenApply`, and the rest.
+
+**Sam:** What about HTTP/2?
+
+**Nadia:** The client supports HTTP/2 automatically when the server supports it — multiplexed requests over a single connection, header compression, significantly lower overhead for many parallel requests. You don't change your code; the client negotiates the protocol via ALPN. For high-throughput inter-service communication, HTTP/2 can make a meaningful difference.
+
+**Sam:** Connection reuse — does it pool connections?
+
+**Nadia:** Yes — `HttpClient` instances maintain a connection pool internally. The critical rule: *create one `HttpClient` instance per application, not one per request*. Each instance manages its own connection pool and threads. Creating a new client per request defeats the pooling entirely — the exact same lesson as HikariCP for database connections. One shared instance, reused for the lifetime of the application.
+
+---
+
 ## PART 6: TESTING & OPERATIONAL EXCELLENCE
 
 ---
 
-## Concept 23: Unit & Integration Testing
+## Concept 34: Unit & Integration Testing
 
 **Sam:** Testing. The thing everyone knows they should do and everyone debates how much of.
 
@@ -852,21 +1375,21 @@ Files.walk(Path.of("/data")).filter(Files::isRegularFile).forEach(...);
 class TradeServiceTest {
     @Mock
     TradeRepository mockRepo;  // fake repository
-    
+
     @InjectMocks
     TradeService service;  // the class we're testing
-    
+
     @Test
     void saveTrade_callsRepository() {
         Trade trade = new Trade("T1", BigDecimal.TEN);
         service.saveTrade(trade);
         verify(mockRepo).save(trade);  // assert mock was called
     }
-    
+
     @Test
     void findTrade_whenNotFound_throwsException() {
         when(mockRepo.findById("T999")).thenReturn(Optional.empty());
-        assertThrows(TradeNotFoundException.class, 
+        assertThrows(TradeNotFoundException.class,
             () -> service.findTrade("T999"));
     }
 }
@@ -888,7 +1411,7 @@ class TradeServiceTest {
 
 ---
 
-## Concept 24: Logging
+## Concept 35: Logging
 
 **Sam:** Logging. `System.out.println` vs actual logging — why does it matter?
 
@@ -904,7 +1427,7 @@ import org.slf4j.LoggerFactory;
 
 public class TradeService {
     private static final Logger log = LoggerFactory.getLogger(TradeService.class);
-    
+
     public void saveTrade(Trade trade) {
         log.debug("Saving trade: {}", trade.getId());
         try {
@@ -956,7 +1479,7 @@ When something goes wrong with a specific trade, you search your log aggregator 
 
 ---
 
-## Concept 25: JVM Tuning & Profiling
+## Concept 36: JVM Tuning & Profiling
 
 **Sam:** JVM tuning. The final boss. Where do you even start?
 
@@ -1023,33 +1546,37 @@ For CPU hotspot profiling in production, **async-profiler** is the tool of choic
 
 ## The Complete Picture: Building a Production Java Service
 
-**Sam:** Nadia, can we tie it all together? What does a well-built Java production service look like, incorporating all 25 concepts?
+**Sam:** Nadia, can we tie it all together? What does a well-built Java production service look like, incorporating all 36 concepts?
 
 **Nadia:** Let's walk through a `TradeProcessingService` in a financial system.
 
-The *domain model* is built with **Records** (`Trade`, `TradeKey`) — immutable, concise, safe. The service boundary is defined with **Interfaces** (`TradeRepository`, `RiskCalculator`) following **DI** and **SOLID** principles.
+The *domain model* is built with **Records** (`Trade`, `TradeKey`) — immutable, concise, safe. Domain states like `TradeStatus` are modeled as **Enums** with behaviour — methods and per-constant data rather than external lookup tables. The set of possible `FinancialInstrument` types is a **Sealed** hierarchy with exhaustive switch handling. The service boundary is defined with **Interfaces** following **DI** and **SOLID** principles.
 
-The service class uses **constructor injection** — Spring wires in the `TradeRepository`, `RiskCalculator`, and `NotificationService`. It applies **OOP** principles: encapsulation of validation logic, polymorphism to support multiple risk models via **Strategy pattern**.
+The service class uses **constructor injection** — Spring wires in the `TradeRepository`, `RiskCalculator`, and `NotificationService`. Spring finds these via **Annotation** scanning and **Reflection** at startup. It applies **OOP** principles: encapsulation of validation logic, polymorphism to support multiple risk models via **Strategy pattern**.
 
-The processing logic uses the **Streams API** for transforming trade collections, `Optional` for safe null handling, and **Lambdas** for concise filtering. For enrichment calls to external services (customer profiles, exchange rates), it uses **CompletableFuture** with **Async I/O** patterns — never blocking the processing thread.
+The processing logic uses the **Streams API** for transforming trade collections, `Optional` for safe null handling, and **Lambdas** with functional interfaces for concise filtering. Switch logic uses **Switch Expressions** — arrow syntax, no fall-through, assigned directly to variables. Multiline SQL in the codebase uses **Text Blocks**. Type declarations use **var** where the type is obvious from context. **Pattern Matching** with `instanceof` eliminates redundant casts throughout.
 
-For concurrent state management — like tracking per-customer trade counts — it uses **ConcurrentHashMap** and **AtomicInteger** for lock-free updates. For operations requiring stronger consistency, **synchronized** blocks or **ReentrantLock** protect critical sections.
+For enrichment calls to external services — customer profiles, exchange rates — the service uses **CompletableFuture** with `sendAsync()` from the **HTTP Client** (`java.net.http`). Or, in Java 21 deployments, it uses **Virtual Threads** via `newVirtualThreadPerTaskExecutor()` and writes plain blocking code that scales automatically.
 
-Database access goes through **JDBC** with **HikariCP** connection pooling — connections borrowed from the pool per request, returned via try-with-resources. Queries use **PreparedStatements** to prevent SQL injection.
+**ThreadLocal** is used by the security framework to propagate the authenticated user across the call stack without passing it through every method.
+
+For concurrent state management — per-customer trade counts — it uses **ConcurrentHashMap** and **AtomicInteger** for lock-free updates. For operations requiring stronger consistency, `synchronized` blocks or `ReentrantLock` protect critical sections.
+
+Database access goes through **JDBC** with **HikariCP** connection pooling for raw SQL and bulk operations. For CRUD on individual entities, **JPA/Hibernate** via Spring Data repositories — method-name queries for simple finders, `@Query` with JOIN FETCH to avoid N+1. All mutating operations are wrapped in `@Transactional`. The **Collections Framework** guides every data structure choice — `ArrayList`, `HashMap`, `EnumMap` — selected by their performance characteristics.
 
 **Serialization** for incoming/outgoing messages uses **Jackson** with custom annotations — JSON for REST APIs, Protobuf for Kafka messages.
 
 File I/O for report generation uses `java.nio.file.Files` with lazy streams for memory-efficient processing of large files.
 
-**Logging** uses SLF4J + Logback in JSON format, with **MDC** populated per request for correlating log lines. Sensitive data is never logged.
+**Logging** uses SLF4J + Logback in JSON format, with **MDC** (backed by ThreadLocal) populated per request for correlating log lines. Sensitive data is never logged.
 
 **Testing**: unit tests with **JUnit 5** and **Mockito** for business logic. Integration tests with **TestContainers** for database and Kafka interactions. `@SpringBootTest` for full application context tests.
 
 **JVM configuration**: `-Xms8g -Xmx8g` (equal, no resizing), **ZGC** for low-latency pauses, GC logging enabled, heap dump on OOM. Profiled with **JFR** in production.
 
-**Generics** are used throughout — `List<Trade>`, `Optional<Trade>`, `CompletableFuture<RiskScore>` — for type-safe, zero-cast code. **Sealed classes** model the exhaustive set of `TradeStatus` states — the compiler enforces handling of every state.
+**Generics** are used throughout — `List<Trade>`, `Optional<Trade>`, `CompletableFuture<RiskScore>` — for type-safe, zero-cast code.
 
-**Exception handling**: custom exceptions (`TradeNotFoundException`, `InsufficientLiquidityException`) with meaningful messages. Business errors as checked exceptions from repository interfaces. Infrastructure errors as unchecked. `@ControllerAdvice` in the web layer translates exceptions to HTTP responses. Dead letter queues for unprocessable messages.
+**Exception handling**: custom exceptions (`TradeNotFoundException`, `InsufficientLiquidityException`) with meaningful messages. Business errors as checked exceptions from repository interfaces. Infrastructure errors as unchecked. `@ControllerAdvice` in the web layer translates exceptions to HTTP responses.
 
 **Sam:** That's the whole picture. Every concept in context.
 
@@ -1057,19 +1584,19 @@ File I/O for report generation uses `java.nio.file.Files` with lazy streams for 
 
 ---
 
-**Sam:** Final recap across all 25 concepts in three episodes:
+**Sam:** Final recap across all 36 concepts in three episodes:
 
-**Core Language** — OOP (encapsulate, inherit, polymorphise, abstract), Generics (type-safe and reusable), Exception Handling (checked vs unchecked, try-with-resources, custom exceptions), Immutability (thread safety, predictability, records as modern tool), JMM (heap, stack, GC, happens-before).
+**Core Language** — OOP (encapsulate, inherit, polymorphise, abstract), Generics (type-safe and reusable), Collections Framework (ArrayList/HashMap for most things, choose by performance need, Comparable vs Comparator), Exception Handling (checked vs unchecked, try-with-resources, custom exceptions), Immutability (thread safety, predictability, records as modern tool), JMM (heap, stack, GC, happens-before).
 
-**Concurrency** — ExecutorService (thread pools, never raw threads), Synchronization (synchronized, ReentrantLock, ReadWriteLock), Concurrent Collections (ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue), CompletableFuture (non-blocking async pipelines), Atomic Variables (lock-free CAS operations).
+**Concurrency** — ExecutorService (thread pools, never raw threads), Synchronization (synchronized, ReentrantLock, ReadWriteLock), ThreadLocal (per-thread state, clear in finally to avoid pool leaks), Concurrent Collections (ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue), CompletableFuture (non-blocking async pipelines), Atomic Variables (lock-free CAS operations), Virtual Threads (millions of cheap threads, write blocking code that scales).
 
-**Design** — Design Patterns (Singleton, Factory, Builder, Strategy, Observer, Decorator), SOLID Principles (five rules of clean OO design), Dependency Injection (decouple, inject, test), Interfaces & Abstract Classes (contracts vs shared implementation, favour composition).
+**Design** — Design Patterns (Singleton, Factory, Builder, Strategy, Observer, Decorator), SOLID Principles (five rules of clean OO design), Dependency Injection (decouple, inject, test), Annotations & Reflection (metadata read by frameworks at runtime — how Spring, JPA, JUnit all work), Interfaces & Abstract Classes (contracts vs shared implementation, favour composition), Enums (full classes with fields/methods, EnumSet/EnumMap for performance).
 
-**Modern Java** — Streams API (declarative, composable processing), Optional (explicit nullability), Lambdas & Functional Interfaces (concise behaviour, Predicate/Function/Consumer/Supplier), Records (concise immutable data carriers), Sealed Classes (exhaustive type hierarchies, compiler-enforced handling).
+**Modern Java** — Streams API (declarative composable processing), Optional (explicit nullability), Lambdas & Functional Interfaces (Predicate/Function/Consumer/Supplier), `var` (type inference — statically typed, less writing), Text Blocks (clean multiline strings), Switch Expressions (arrow syntax, no fall-through, exhaustive), Pattern Matching (instanceof check-and-bind, switch patterns with guards), Records (concise immutable data carriers), Sealed Classes (exhaustive type hierarchies, compiler-enforced handling).
 
-**Production** — JDBC & Connection Pooling (efficient database access via HikariCP), Serialization (Jackson for JSON, avoid native serialization, Protobuf for performance), NIO & File I/O (buffers, channels, Files API, lazy streams), Unit & Integration Testing (JUnit 5, Mockito, TestContainers, the testing pyramid), Logging (SLF4J, structured JSON logs, MDC, never log sensitive data), JVM Tuning & Profiling (GC selection, heap sizing, JFR profiling, symptom-to-diagnosis patterns).
+**Production** — JDBC & Connection Pooling (efficient database access via HikariCP), JPA & Hibernate (ORM, Spring Data repositories, N+1 trap, @Transactional), Serialization (Jackson for JSON, avoid native serialization, Protobuf for performance), NIO & File I/O (buffers, channels, Files API, lazy streams), HTTP Client (modern java.net.http, one instance per app, async via CompletableFuture), Unit & Integration Testing (JUnit 5, Mockito, TestContainers, the testing pyramid), Logging (SLF4J, structured JSON logs, MDC, never log sensitive data), JVM Tuning & Profiling (GC selection, heap sizing, JFR profiling, symptom-to-diagnosis patterns).
 
-**Nadia:** Twenty-five concepts. Every one of them something you will use in a real Java application. Not theory — tools.
+**Nadia:** Thirty-six concepts. Every one of them something you will use in a real Java application. Not theory — tools.
 
 **Sam:** Thanks for listening to *Java Unlocked*. I'm Sam.
 
@@ -1083,37 +1610,48 @@ File I/O for report generation uses `java.nio.file.Files` with lazy streams for 
 
 ---
 
-## 📋 Concept Index — All 25
+## Concept Index — All 36
 
 | # | Concept | Episode | Category |
 |---|---------|---------|----------|
 | 1 | OOP — Encapsulation, Inheritance, Polymorphism, Abstraction | 1 | Core Language |
 | 2 | Generics — Type safety & reusability | 1 | Core Language |
-| 3 | Exception Handling — Checked/unchecked, try-with-resources | 1 | Core Language |
-| 4 | Immutability — final, defensive copies, records | 1 | Core Language |
-| 5 | Java Memory Model — Heap, Stack, GC, happens-before | 1 | Core Language |
-| 6 | Threads & ExecutorService — Thread pools, Future | 1 | Concurrency |
-| 7 | Synchronization & Locks — synchronized, ReentrantLock, ReadWriteLock | 1 | Concurrency |
-| 8 | Concurrent Collections — ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue | 1 | Concurrency |
-| 9 | CompletableFuture — Non-blocking async pipelines | 1 | Concurrency |
-| 10 | Atomic Variables — AtomicInteger, AtomicReference, CAS | 1 | Concurrency |
-| 11 | Design Patterns — Singleton, Factory, Builder, Strategy, Observer, Decorator | 2 | Design |
-| 12 | SOLID Principles — SRP, OCP, LSP, ISP, DIP | 2 | Design |
-| 13 | Dependency Injection — IoC, constructor injection, Spring | 2 | Design |
-| 14 | Interfaces & Abstract Classes — Contracts vs implementation, composition | 2 | Design |
-| 15 | Streams API — filter, map, collect, parallelStream | 2 | Modern Java |
-| 16 | Optional — Explicit nullability, orElse, orElseThrow | 2 | Modern Java |
-| 17 | Lambdas & Functional Interfaces — Predicate, Function, Consumer, Supplier | 2 | Modern Java |
-| 18 | Records — Concise immutable data carriers (Java 14+) | 2 | Modern Java |
-| 19 | Sealed Classes — Exhaustive hierarchies, pattern matching (Java 17+) | 2 | Modern Java |
-| 20 | JDBC & Connection Pooling — HikariCP, PreparedStatement, pool sizing | 3 | I/O & Persistence |
-| 21 | Serialization — Jackson JSON, Protobuf, avoiding native serialization | 3 | I/O & Persistence |
-| 22 | NIO & File I/O — Channels, buffers, Files API, WatchService | 3 | I/O & Persistence |
-| 23 | Unit & Integration Testing — JUnit 5, Mockito, TestContainers | 3 | Testing |
-| 24 | Logging — SLF4J, MDC, structured JSON, never log PII | 3 | Operations |
-| 25 | JVM Tuning & Profiling — GC selection, heap sizing, JFR, async-profiler | 3 | Operations |
+| 3 | Collections Framework — ArrayList/HashMap, Comparable/Comparator | 1 | Core Language |
+| 4 | Exception Handling — Checked/unchecked, try-with-resources | 1 | Core Language |
+| 5 | Immutability — final, defensive copies, records | 1 | Core Language |
+| 6 | Java Memory Model — Heap, Stack, GC, happens-before | 1 | Core Language |
+| 7 | Threads & ExecutorService — Thread pools, Future | 1 | Concurrency |
+| 8 | Synchronization & Locks — synchronized, ReentrantLock, ReadWriteLock | 1 | Concurrency |
+| 9 | ThreadLocal — Per-thread state, pool leak prevention | 1 | Concurrency |
+| 10 | Concurrent Collections — ConcurrentHashMap, CopyOnWriteArrayList, BlockingQueue | 1 | Concurrency |
+| 11 | CompletableFuture — Non-blocking async pipelines | 1 | Concurrency |
+| 12 | Atomic Variables — AtomicInteger, AtomicReference, CAS | 1 | Concurrency |
+| 13 | Virtual Threads — Project Loom, millions of threads, blocking code that scales | 1 | Concurrency |
+| 14 | Design Patterns — Singleton, Factory, Builder, Strategy, Observer, Decorator | 2 | Design |
+| 15 | SOLID Principles — SRP, OCP, LSP, ISP, DIP | 2 | Design |
+| 16 | Dependency Injection — IoC, constructor injection, Spring | 2 | Design |
+| 17 | Annotations & Reflection — Metadata, runtime scanning, how frameworks work | 2 | Design |
+| 18 | Interfaces & Abstract Classes — Contracts vs implementation, composition | 2 | Design |
+| 19 | Enums — Fields, methods, abstract methods, EnumSet/EnumMap | 2 | Design |
+| 20 | Streams API — filter, map, collect, parallelStream | 2 | Modern Java |
+| 21 | Optional — Explicit nullability, orElse, orElseThrow | 2 | Modern Java |
+| 22 | Lambdas & Functional Interfaces — Predicate, Function, Consumer, Supplier | 2 | Modern Java |
+| 23 | var — Local variable type inference, still statically typed (Java 10) | 2 | Modern Java |
+| 24 | Text Blocks — Multiline strings, no escape noise (Java 15) | 2 | Modern Java |
+| 25 | Switch Expressions — Arrow syntax, no fall-through, exhaustive (Java 14) | 2 | Modern Java |
+| 26 | Pattern Matching — instanceof check-and-bind, switch patterns, guards (Java 16/21) | 2 | Modern Java |
+| 27 | Records — Concise immutable data carriers (Java 14+) | 2 | Modern Java |
+| 28 | Sealed Classes — Exhaustive hierarchies, pattern matching (Java 17+) | 2 | Modern Java |
+| 29 | JDBC & Connection Pooling — HikariCP, PreparedStatement, pool sizing | 3 | I/O & Persistence |
+| 30 | JPA & Hibernate — ORM, Spring Data, N+1 problem, @Transactional | 3 | I/O & Persistence |
+| 31 | Serialization — Jackson JSON, Protobuf, avoiding native serialization | 3 | I/O & Persistence |
+| 32 | NIO & File I/O — Channels, buffers, Files API, WatchService | 3 | I/O & Persistence |
+| 33 | HTTP Client — java.net.http, HTTP/2, async via CompletableFuture (Java 11) | 3 | I/O & Persistence |
+| 34 | Unit & Integration Testing — JUnit 5, Mockito, TestContainers | 3 | Testing |
+| 35 | Logging — SLF4J, MDC, structured JSON, never log PII | 3 | Operations |
+| 36 | JVM Tuning & Profiling — GC selection, heap sizing, JFR, async-profiler | 3 | Operations |
 
 ---
 
 *End of Java Unlocked — Three-Episode Series*
-*Total Concepts: 25 | Estimated Runtime: ~3.5 hours*
+*Total Concepts: 36 | Estimated Runtime: ~5 hours*
