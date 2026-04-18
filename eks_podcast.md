@@ -532,3 +532,261 @@ eksctl create iamserviceaccount \
 ---
 
 *The Orchestration Station is produced independently. All trademarks belong to their respective owners.*
+
+---
+
+## 📖 Glossary — Plain English Definitions
+
+Every term used in this episode, explained without jargon.
+
+---
+
+### Core Concepts
+
+**Container**
+A lightweight, self-contained package that holds your application code plus everything it needs to run (libraries, settings, runtime). Think of it like a lunchbox — everything needed for the meal is packed inside, and it works the same whether you open it at home or at the office.
+
+**Kubernetes**
+An open-source system that automatically manages where and how containers run across many machines. It handles starting containers, restarting them if they crash, and scaling them up or down based on demand. The name comes from the Greek word for "helmsman" or "pilot."
+
+**EKS (Elastic Kubernetes Service)**
+Amazon's managed version of Kubernetes. AWS runs the complex brain of Kubernetes for you, so you don't have to set it up or maintain it yourself.
+
+**ECS (Elastic Container Service)**
+Amazon's simpler, AWS-only alternative to Kubernetes for running containers. Easier to learn but less powerful and not portable to other clouds.
+
+**Cluster**
+A group of machines (nodes) that Kubernetes manages as one unit. Your applications run somewhere inside the cluster.
+
+**Control Plane**
+The "brain" of a Kubernetes cluster — the part that makes decisions about where to run things, tracks what's running, and responds to changes. With EKS, AWS manages this for you.
+
+**Data Plane**
+The "muscle" of a Kubernetes cluster — the actual machines (nodes) where your containers run. You manage this part (unless you use Fargate).
+
+**etcd**
+The database Kubernetes uses internally to store all its configuration and state. You never interact with it directly, but it's critical — if etcd goes down, the cluster can't make decisions.
+
+---
+
+### Kubernetes Building Blocks
+
+**Pod**
+The smallest unit in Kubernetes. A pod contains one or more containers that always run together on the same machine and share a network connection. Pods are temporary — they can be stopped and replaced at any time.
+
+**Deployment**
+A Kubernetes instruction that says "keep N copies of this pod running at all times." If a pod crashes, the Deployment automatically starts a replacement. If you update your app, it handles the rollout.
+
+**Service**
+A stable network address that points to a group of pods. Because pods come and go, a Service gives you a fixed address that always works, routing traffic to whichever pods are currently healthy.
+
+**Ingress**
+An HTTP traffic router that sits in front of multiple services. One Ingress can route `/api/users` to the users service and `/api/orders` to the orders service, saving you from needing a separate load balancer for every service.
+
+**ConfigMap**
+A Kubernetes object for storing non-sensitive configuration — things like app settings, environment names, or feature flags. Pods read these values without them being baked into the container image.
+
+**Secret**
+Like a ConfigMap, but for sensitive data — passwords, API keys, certificates. The data is stored encoded and can be encrypted at rest.
+
+**Namespace**
+A way to divide one Kubernetes cluster into separate sections. Teams or environments (dev, staging, prod) can each have their own namespace with their own access controls and resource limits.
+
+**DaemonSet**
+A Kubernetes object that ensures one copy of a pod runs on every node in the cluster. Used for things like log collectors or monitoring agents that need to run everywhere.
+
+**Pod Disruption Budget (PDB)**
+A rule that tells Kubernetes "never take down more than X pods of this type at the same time." Protects your app from going fully offline during upgrades or node replacements.
+
+**Service Account**
+A Kubernetes identity assigned to a pod. Used to control what the pod is allowed to do — similar to a user account, but for applications instead of people.
+
+---
+
+### Compute & Nodes
+
+**Node**
+A single machine (virtual or physical) in a Kubernetes cluster where pods actually run. A cluster typically has many nodes.
+
+**Managed Node Group**
+A set of EC2 machines that AWS creates and maintains for you as Kubernetes nodes. AWS handles OS updates, node registration, and graceful shutdowns.
+
+**Fargate**
+An AWS service where you run containers without managing any servers at all. You just define the pod, and AWS figures out where to run it. Each pod gets its own isolated compute environment.
+
+**EC2 (Elastic Compute Cloud)**
+Amazon's virtual machine service. Kubernetes nodes are typically EC2 instances.
+
+**Spot Instance**
+A spare EC2 machine rented at a big discount (often 60–90% cheaper) that AWS can reclaim with 2 minutes' notice. Good for workloads that can handle interruption.
+
+**Karpenter**
+An AWS-built tool that automatically adds or removes nodes from your cluster based on what pods need. Much faster and smarter than the older Cluster Autoscaler — it picks the exact right machine type for the workload.
+
+---
+
+### Networking
+
+**VPC (Virtual Private Cloud)**
+Your private, isolated section of the AWS network. All your AWS resources (EC2, RDS, EKS nodes, etc.) live inside a VPC.
+
+**Subnet**
+A smaller section of a VPC. Resources in a subnet share a range of IP addresses. Public subnets can reach the internet; private subnets cannot.
+
+**CIDR**
+A notation for describing a range of IP addresses (e.g., `10.0.0.0/16` means "all addresses from 10.0.0.0 to 10.0.255.255"). Used when planning how many IP addresses a network has available.
+
+**CNI (Container Network Interface)**
+A plugin system that controls how containers get network connections. It's the standard way Kubernetes assigns IP addresses to pods.
+
+**VPC CNI**
+The AWS-specific CNI plugin used by EKS. It gives each pod a real IP address from your VPC (instead of a fake internal address), so pods can talk directly to other AWS services like RDS or ElastiCache.
+
+**CoreDNS**
+The internal DNS server inside every Kubernetes cluster. It translates service names like `users-service.default.svc.cluster.local` into the IP address of the right service.
+
+**ALB (Application Load Balancer)**
+An AWS load balancer that works at the HTTP/HTTPS level. It can route requests to different targets based on URL path or hostname.
+
+**NLB (Network Load Balancer)**
+An AWS load balancer that works at the TCP/UDP level — faster and lower-latency than an ALB, but with no HTTP-level routing.
+
+**Service Mesh**
+A layer of infrastructure that controls all network traffic between your services. Tools like Istio inject a small proxy (Envoy) into every pod that handles retries, circuit breaking, encryption, and traffic splitting automatically.
+
+**Envoy**
+A high-performance network proxy used by service meshes (like Istio) to intercept and manage traffic between pods.
+
+**Istio**
+A popular open-source service mesh for Kubernetes. Adds traffic management, observability, and security between services without changing application code.
+
+---
+
+### Security & Identity
+
+**IAM (Identity and Access Management)**
+The AWS system for controlling who (or what) can access which AWS resources. Every API call to AWS is checked against IAM permissions.
+
+**IRSA (IAM Roles for Service Accounts)**
+A mechanism that lets individual Kubernetes pods assume specific AWS IAM roles. This means each pod gets only the AWS permissions it needs — not the permissions of the entire machine it runs on.
+
+**OIDC (OpenID Connect)**
+An identity protocol that lets one system verify who you are via a trusted third party. EKS uses OIDC so that Kubernetes service accounts can prove their identity to AWS and receive temporary IAM credentials.
+
+**STS (Security Token Service)**
+The AWS service that issues temporary, short-lived credentials. IRSA uses STS under the hood — instead of storing permanent AWS keys, pods get temporary credentials that expire automatically.
+
+**Pod Identity**
+A newer, simpler AWS alternative to IRSA for giving pods IAM roles. It achieves the same result but with less setup (no OIDC configuration required).
+
+**RBAC (Role-Based Access Control)**
+The Kubernetes system for controlling who can do what inside the cluster. You define Roles (a set of allowed actions) and bind them to users or service accounts.
+
+**Role / ClusterRole**
+A Kubernetes RBAC object listing permitted actions (e.g., "can read pods, cannot delete deployments"). A Role applies within one namespace; a ClusterRole applies across the entire cluster.
+
+**KMS (Key Management Service)**
+AWS's service for creating and managing encryption keys. Used in EKS to encrypt Kubernetes Secrets at rest.
+
+**aws-auth ConfigMap**
+A Kubernetes configuration file that maps AWS IAM users and roles to Kubernetes RBAC groups. This is how AWS credentials translate into Kubernetes permissions.
+
+---
+
+### Scaling
+
+**HPA (Horizontal Pod Autoscaler)**
+A Kubernetes feature that automatically increases or decreases the number of pod replicas based on metrics like CPU usage or requests per second.
+
+**VPA (Vertical Pod Autoscaler)**
+A Kubernetes feature that automatically adjusts how much CPU and memory a pod requests, based on observed usage. Instead of more pods, it makes each pod the right size.
+
+**KEDA (Kubernetes Event-Driven Autoscaling)**
+An extension to HPA that can scale pods based on external event sources — like the number of messages in an SQS queue, a Kafka topic, or a database row count. Can scale all the way to zero.
+
+**Cluster Autoscaler**
+The older tool for automatically adding/removing nodes. Still works, but Karpenter is now preferred for EKS because it's faster and smarter about instance selection.
+
+**SQS (Simple Queue Service)**
+AWS's managed message queue. One service puts messages in, another service reads and processes them. Often used to decouple parts of an application.
+
+---
+
+### Deployments & GitOps
+
+**YAML**
+A human-readable text format used to write Kubernetes configuration files. Uses indentation (spaces) to show structure. All Kubernetes objects — pods, deployments, services — are defined in YAML.
+
+**Helm**
+A package manager for Kubernetes. A Helm "chart" is a reusable, parameterized bundle of Kubernetes YAML files. You can install complex applications (like Prometheus) with a single command, and manage different configurations (dev vs prod) with separate values files.
+
+**GitOps**
+A way of managing deployments where Git is the single source of truth. Changes to the cluster are made by committing to a Git repository, not by running commands directly. This gives you a full audit trail and easy rollbacks.
+
+**Argo CD**
+A GitOps tool that watches a Git repository and automatically keeps your Kubernetes cluster in sync with it. If the cluster drifts from what's in Git, Argo CD flags it or fixes it automatically.
+
+**Argo Rollouts**
+A companion to Argo CD that adds advanced deployment strategies like canary releases and blue-green deployments to Kubernetes.
+
+**Rolling Update**
+A deployment strategy where new pods replace old ones gradually — a few at a time — so the application stays available throughout the update.
+
+**Canary Deployment**
+A deployment strategy where a small percentage of traffic (e.g., 5%) is sent to the new version first. If no problems appear, traffic is gradually shifted over. If errors spike, the rollout is stopped or reversed.
+
+**kubectl**
+The command-line tool for talking to a Kubernetes cluster. You use it to apply configs, check pod status, read logs, and manage resources.
+
+**eksctl**
+A command-line tool specifically for creating and managing EKS clusters. Makes cluster setup much simpler than doing it manually through AWS.
+
+---
+
+### Observability
+
+**Fluent Bit**
+A lightweight log collector. Runs as a DaemonSet on every node, collects container logs, and ships them to a destination like CloudWatch or OpenSearch.
+
+**CloudWatch**
+AWS's monitoring and logging service. Stores logs, metrics, and alarms. CloudWatch Container Insights provides pre-built dashboards for EKS cluster health.
+
+**Prometheus**
+An open-source monitoring system that collects and stores metrics from your applications and infrastructure. Very commonly used with Kubernetes.
+
+**Grafana**
+An open-source dashboard tool for visualizing metrics. Usually connected to Prometheus to create charts and alerts.
+
+**AMP (Amazon Managed Prometheus)**
+AWS's fully managed, Prometheus-compatible metrics service. You get Prometheus without running the Prometheus server yourself.
+
+**OpenTelemetry (OTEL)**
+An open standard for collecting logs, metrics, and traces from applications. Supported by most observability tools — vendor-neutral.
+
+**Distributed Tracing**
+Tracking a single request as it travels through multiple services in your application. Lets you see exactly where time is spent and where errors occur.
+
+**AWS X-Ray**
+Amazon's distributed tracing service. Instruments your application to show how requests flow through your services.
+
+**Crash Loop Backoff**
+A Kubernetes state where a pod keeps crashing and restarting repeatedly. Kubernetes slows down the restarts over time (backs off) rather than hammering the system. Usually means there's a bug or misconfiguration in the app.
+
+---
+
+### AWS Services Referenced
+
+**S3 (Simple Storage Service)**
+AWS's object storage service. Used to store files, images, backups, and datasets.
+
+**DynamoDB**
+AWS's fully managed NoSQL database. Fast, scalable, and serverless.
+
+**RDS (Relational Database Service)**
+AWS's managed relational database service (supports MySQL, PostgreSQL, etc.).
+
+**ElastiCache**
+AWS's managed in-memory caching service (supports Redis and Memcached).
+
+**ECR (Elastic Container Registry)**
+AWS's private container image registry. You push your Docker images here, and Kubernetes pulls them from here when starting pods.
