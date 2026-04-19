@@ -1546,41 +1546,93 @@ For CPU hotspot profiling in production, **async-profiler** is the tool of choic
 
 ## The Complete Picture: Building a Production Java Service
 
-**Sam:** Nadia, can we tie it all together? What does a well-built Java production service look like, incorporating all 36 concepts?
+**Sam:** Nadia, can we tie it all together? Walk me through a real production service — where does each concept actually live?
 
-**Nadia:** Let's walk through a `TradeProcessingService` in a financial system.
+**Nadia:** Let's build a `TradeProcessingService` for a financial system. I'll go layer by layer so it actually makes sense rather than just listing things.
 
-The *domain model* is built with **Records** (`Trade`, `TradeKey`) — immutable, concise, safe. Domain states like `TradeStatus` are modeled as **Enums** with behaviour — methods and per-constant data rather than external lookup tables. The set of possible `FinancialInstrument` types is a **Sealed** hierarchy with exhaustive switch handling. The service boundary is defined with **Interfaces** following **DI** and **SOLID** principles.
+**Sam:** Perfect. Start at the bottom — what does the domain look like?
 
-The service class uses **constructor injection** — Spring wires in the `TradeRepository`, `RiskCalculator`, and `NotificationService`. Spring finds these via **Annotation** scanning and **Reflection** at startup. It applies **OOP** principles: encapsulation of validation logic, polymorphism to support multiple risk models via **Strategy pattern**.
+**Nadia:** The domain model uses three modern Java features in combination. `Trade` and `TradeKey` are **Records** — immutable data carriers, no boilerplate. Because they're immutable by design, they give us the **Immutability** guarantee for free: safe to share across threads, no defensive copying needed. Trade status — `PENDING`, `EXECUTED`, `SETTLED`, `REJECTED` — is a **Sealed class** `TradeStatus` hierarchy, not a stringly-typed status field. Each state is a separate class with its own behaviour. And the set of possible instrument types — equity, bond, derivative — is modeled as an **Enum** with fields and methods. `FinancialInstrument.EQUITY` knows its settlement days; `DERIVATIVE` knows its margin requirements. These aren't just labels.
 
-The processing logic uses the **Streams API** for transforming trade collections, `Optional` for safe null handling, and **Lambdas** with functional interfaces for concise filtering. Switch logic uses **Switch Expressions** — arrow syntax, no fall-through, assigned directly to variables. Multiline SQL in the codebase uses **Text Blocks**. Type declarations use **var** where the type is obvious from context. **Pattern Matching** with `instanceof` eliminates redundant casts throughout.
+**Sam:** And **Generics** — where do they show up?
 
-For enrichment calls to external services — customer profiles, exchange rates — the service uses **CompletableFuture** with `sendAsync()` from the **HTTP Client** (`java.net.http`). Or, in Java 21 deployments, it uses **Virtual Threads** via `newVirtualThreadPerTaskExecutor()` and writes plain blocking code that scales automatically.
+**Nadia:** Everywhere, quietly. `List<Trade>`, `Optional<Trade>`, `CompletableFuture<RiskScore>` — every collection and wrapper is typed. No casts, no `ClassCastException` at runtime. Generics are the invisible scaffolding that makes everything else type-safe.
 
-**ThreadLocal** is used by the security framework to propagate the authenticated user across the call stack without passing it through every method.
+**Sam:** Okay, service layer next. How is the service itself structured?
 
-For concurrent state management — per-customer trade counts — it uses **ConcurrentHashMap** and **AtomicInteger** for lock-free updates. For operations requiring stronger consistency, `synchronized` blocks or `ReentrantLock` protect critical sections.
+**Nadia:** The `TradeProcessingService` is defined behind a `TradeProcessor` **Interface**. Sam asks: why an interface? Because it decouples the contract — what the service *does* — from the implementation — *how* it does it. We also have an `AbstractTradeValidator` **Abstract Class** that handles shared validation logic: field presence, date ranges, currency checks. Concrete validators extend it and only implement the asset-class-specific rules. That's the right split: interface for contracts, abstract class for shared implementation.
 
-Database access goes through **JDBC** with **HikariCP** connection pooling for raw SQL and bulk operations. For CRUD on individual entities, **JPA/Hibernate** via Spring Data repositories — method-name queries for simple finders, `@Query` with JOIN FETCH to avoid N+1. All mutating operations are wrapped in `@Transactional`. The **Collections Framework** guides every data structure choice — `ArrayList`, `HashMap`, `EnumMap` — selected by their performance characteristics.
+**Sam:** And how does Spring wire it all together?
 
-**Serialization** for incoming/outgoing messages uses **Jackson** with custom annotations — JSON for REST APIs, Protobuf for Kafka messages.
+**Nadia:** **Dependency Injection** via constructor injection. The service declares its dependencies — `TradeRepository`, `RiskCalculator`, `NotificationService` — as constructor parameters. Spring reads the **Annotations** (`@Service`, `@Autowired`, `@Transactional`) using **Reflection** at startup, builds the object graph, and wires everything in. You never call `new`. This is the Inversion of Control principle — the framework, not your code, controls construction.
 
-File I/O for report generation uses `java.nio.file.Files` with lazy streams for memory-efficient processing of large files.
+**Sam:** What about design decisions? You've talked about the Strategy pattern before.
 
-**Logging** uses SLF4J + Logback in JSON format, with **MDC** (backed by ThreadLocal) populated per request for correlating log lines. Sensitive data is never logged.
+**Nadia:** All six patterns show up here. The `RiskCalculatorFactory` is a **Factory** — given a trade type, it returns the right `RiskCalculator` implementation. Risk calculators themselves are the **Strategy** pattern — you swap in `EquityRiskCalculator` or `DerivativeRiskCalculator` without the service knowing which one it has. The `NotificationService` is an **Observer** — it subscribes to trade lifecycle events and fires alerts when trades fail risk checks. The `TradeRepository` bean in Spring is a **Singleton** — one instance, shared. The `Trade` object is assembled via a **Builder** — `Trade.builder().instrument(...).quantity(...).price(...).build()` — because constructors with eight parameters are unreadable. And the audit logging wraps the service via a **Decorator** — it intercepts calls, logs before and after, without touching the core logic.
 
-**Testing**: unit tests with **JUnit 5** and **Mockito** for business logic. Integration tests with **TestContainers** for database and Kafka interactions. `@SpringBootTest` for full application context tests.
+**Sam:** That's all five SOLID principles in there too, isn't it?
 
-**JVM configuration**: `-Xms8g -Xmx8g` (equal, no resizing), **ZGC** for low-latency pauses, GC logging enabled, heap dump on OOM. Profiled with **JFR** in production.
+**Nadia:** Exactly. `TradeProcessingService` does one thing — **SRP**. The `TradeProcessor` interface lets you add new implementations without modifying existing code — **OCP**. Every risk calculator is substitutable for any other — **LSP**. The notification interface is small and specific — **ISP**. And the service depends on the `RiskCalculator` interface, not `EquityRiskCalculator` directly — **DIP**. These aren't abstract rules. This is what the code actually looks like.
 
-**Generics** are used throughout — `List<Trade>`, `Optional<Trade>`, `CompletableFuture<RiskScore>` — for type-safe, zero-cast code.
+**Sam:** Now the actual processing logic — filtering, transforming trades.
 
-**Exception handling**: custom exceptions (`TradeNotFoundException`, `InsufficientLiquidityException`) with meaningful messages. Business errors as checked exceptions from repository interfaces. Infrastructure errors as unchecked. `@ControllerAdvice` in the web layer translates exceptions to HTTP responses.
+**Nadia:** The **Streams API** handles all of it. Filter pending trades, map to risk assessments, collect into a result list — declarative, composable, readable. Every intermediate value is wrapped in **Optional** — `findTradeById()` returns `Optional<Trade>`, not `null`. Callers are forced to handle the empty case. No NPE surprises. Filtering and mapping use **Lambdas** with functional interfaces — `Predicate<Trade>` for the filter condition, `Function<Trade, RiskScore>` for the mapping. **var** appears where the type is obvious from the right-hand side. SQL strings are **Text Blocks** — triple-quoted, properly indented, no backslash-escaped newlines. Switch logic dispatching on `TradeStatus` uses **Switch Expressions** — arrow cases, no fall-through, the result assigned directly to a variable. And `instanceof` checks use **Pattern Matching** — `if (instrument instanceof Derivative d)` — no cast needed, `d` is immediately in scope.
 
-**Sam:** That's the whole picture. Every concept in context.
+**Sam:** What about choosing between `ArrayList` vs `LinkedList`, or sorting — where does the **Collections Framework** fit in?
 
-**Nadia:** Nothing gratuitous. Every concept serves a real need.
+**Nadia:** Everywhere data is held. The processing pipeline buffers trade batches in `ArrayList` — O(1) indexed access, fast appends. Trade lookups by ID use `HashMap` — O(1) average. Status-keyed groupings use `EnumMap` — faster than `HashMap` for enum keys. When we need to sort trades for reporting — by timestamp, then by value — we implement `Comparable<Trade>` on the `Trade` record for the natural order, and pass a `Comparator` to `Collections.sort()` when the sort criteria is caller-specified. Knowing when to use which collection, and what the complexity cost is, is a daily decision.
+
+**Sam:** Let's talk concurrency. This is a high-throughput system — lots of trades arriving simultaneously.
+
+**Nadia:** Start with the foundation: the **Java Memory Model**. When multiple threads touch shared state, you can't assume one thread sees the other's writes unless there's a *happens-before* relationship. That's established by `synchronized`, `volatile`, or the `java.util.concurrent` primitives. Get this wrong and you have race conditions that only show up in production under load — the worst kind. `volatile` on the `circuitBreakerOpen` flag ensures every thread reads the current value from main memory, not a stale cached copy in a CPU register.
+
+**Sam:** And for actual thread management?
+
+**Nadia:** The background processing pipeline — reading from Kafka, processing batches, writing to the database — runs on an **ExecutorService**. We create it once with `Executors.newFixedThreadPool(16)` and submit `Callable<TradeResult>` tasks. Each submission returns a `Future<TradeResult>` — you can call `future.get()` to block for the result, or pass it into a `CompletableFuture` chain. The key rule: never `new Thread()` directly. Always use an `ExecutorService`. It controls pool sizing, task queuing, and graceful shutdown.
+
+**Sam:** And CompletableFuture for the async enrichment calls?
+
+**Nadia:** For enriching each trade — fetching the customer profile and the current exchange rate in parallel — we use **CompletableFuture**. `CompletableFuture.supplyAsync(() -> fetchCustomer(id))` fires it off without blocking. We chain `.thenCombine()` to merge both results when both complete. If one fails, `.exceptionally()` provides a fallback. All of this runs on the shared **HTTP Client** (`java.net.http.HttpClient`) — one instance per application, reused for connection pooling, using `sendAsync()` for non-blocking requests. In Java 21 deployments we replace the `CompletableFuture` chain entirely: **Virtual Threads** via `Executors.newVirtualThreadPerTaskExecutor()` let us write plain blocking `send()` calls that scale to millions of concurrent requests — the JVM parks the virtual thread while waiting and switches to another, with no OS thread wasted.
+
+**Sam:** What about shared mutable state — the per-customer trade counters?
+
+**Nadia:** **Atomic Variables**. `ConcurrentHashMap<CustomerId, AtomicInteger>` — each customer maps to an `AtomicInteger` tracking their trade count. The `compareAndSet()` operation is lock-free; no thread ever blocks. For the **Concurrent Collections**: the trade event queue is a `BlockingQueue` — producers put, consumers take, blocking naturally when empty. The in-flight trade registry is a `ConcurrentHashMap` — concurrent reads with fine-grained segment locking. When we need stronger consistency — updating two related data structures atomically — we use `synchronized` or a `ReentrantLock`. For the risk limit check, which is read far more often than it's updated, a `ReadWriteLock` lets multiple threads read simultaneously, and only blocks when a write happens.
+
+**Sam:** ThreadLocal — where does that fit?
+
+**Nadia:** The security framework stores the authenticated user in a **ThreadLocal**. Every method in the call stack can call `SecurityContext.getCurrentUser()` without receiving it as a parameter. It's per-thread state — each request thread has its own copy. The rule: always clear it in a `finally` block. If you use a thread pool and forget to clear, the next request that reuses that thread inherits the previous user's identity. That's a security bug.
+
+**Sam:** Now data access. JDBC vs JPA — when do you use which?
+
+**Nadia:** **JDBC with HikariCP** for raw SQL and bulk operations — batch inserts of 10,000 trades, complex analytical queries with multiple CTEs, anything where you need full control over the SQL. HikariCP is the connection pool: fixed size, borrowed on request, returned after use, never created and destroyed per-request. **JPA/Hibernate** via Spring Data for CRUD on individual entities — `TradeRepository.findByCustomerId()` becomes a method declaration, Spring generates the query. For anything with joins, use `@Query("SELECT t FROM Trade t JOIN FETCH t.legs")` to avoid the N+1 trap — one query instead of one-per-row. Every mutating operation is wrapped in `@Transactional`.
+
+**Sam:** Serialization?
+
+**Nadia:** Incoming REST requests and outgoing API responses use **Jackson** — `@JsonProperty` on fields, `@JsonDeserialize` for custom types. Kafka messages use Protobuf — smaller payload, schema-enforced, fast to serialize. Native Java serialization (`Serializable`) is never used — it's a security liability and a maintenance burden.
+
+**Sam:** File I/O?
+
+**Nadia:** End-of-day trade reports are generated with **NIO**. `java.nio.file.Files.lines(path)` gives a lazy `Stream<String>` — the file is read line by line, never fully loaded into memory. For large reports this is the difference between 50MB heap usage and an `OutOfMemoryError`. Channels and buffers come in when we need high-throughput binary writes — writing a bulk archive file efficiently.
+
+**Sam:** Exception handling — how is it structured across all of this?
+
+**Nadia:** Business errors are checked exceptions from the repository interfaces: `TradeNotFoundException`, `InsufficientLiquidityException`. Callers are forced to handle them. Infrastructure errors — network timeouts, DB connection failures — are unchecked `RuntimeException` subclasses, because there's nothing meaningful the caller can do except let them propagate. Resources — JDBC connections, file handles — are all opened in try-with-resources blocks. No finally needed; the `AutoCloseable` contract handles cleanup. At the web layer, `@ControllerAdvice` catches all exceptions in one place and maps them to the right HTTP status codes.
+
+**Sam:** Logging and observability?
+
+**Nadia:** **Logging** via SLF4J + Logback, structured JSON format — every line is a parseable JSON object, not a human-readable string, because logs go into Splunk or Datadog and get queried programmatically. **MDC** — backed by `ThreadLocal` — is populated at the start of every request: trade ID, customer ID, request ID. Every subsequent log line in that request automatically includes those fields without you passing them through every method call. Sensitive data — account numbers, PII — never enters a log line.
+
+**Sam:** Testing — what's the strategy?
+
+**Nadia:** Three layers matching the **testing pyramid**. **JUnit 5** with **Mockito** for unit tests — inject mock collaborators, test the business logic in isolation, run in milliseconds. **TestContainers** for integration tests — spin up a real Postgres and a real Kafka in Docker, test the database queries and event consumers against actual infrastructure. `@SpringBootTest` for end-to-end application context tests — the full Spring context starts, real HTTP calls hit the controllers. Each layer tests what it's good at. Unit tests give fast feedback; integration tests catch what mocks miss.
+
+**Sam:** And finally — JVM configuration?
+
+**Nadia:** `-Xms8g -Xmx8g` — equal initial and max heap, so the JVM never has to resize under load. **ZGC** as the garbage collector — sub-millisecond pause times, essential for a latency-sensitive trading system. GC logging always on — when latency spikes, the GC log tells you why. Heap dump on OOM — when you get an `OutOfMemoryError`, you want the snapshot of what was in memory. **JFR** runs continuously in production — flame graphs, allocation profiling, lock contention — all with near-zero overhead. When something is slow, you profile first, tune second. Never guess.
+
+**Sam:** That's all 36. Every concept with a reason to exist.
+
+**Nadia:** That's the point. In a real system, none of them are gratuitous. Each one is there because a real problem demanded it.
 
 ---
 

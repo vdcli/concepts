@@ -925,3 +925,99 @@
 
 ---
 *Stream Talk is a fictional educational podcast. All financial examples are illustrative only.*
+
+---
+
+## The Complete Picture: Building a Production Event Streaming and Processing Application Using Kafka and Kafka Streams
+
+**Alex:** Priya, can we tie it all together? Walk me through a complete production system — where does each concept actually live in a real application?
+
+**Priya:** Let's build it end to end. A real-time financial event streaming and processing platform: trade capture, enrichment, risk aggregation, compliance alerting. I'll walk through every layer — infrastructure, data, processing, operations — so every concept has a real home.
+
+**Alex:** Start at the infrastructure layer. You've got a blank cluster. What do you decide first?
+
+**Priya:** Three things before a single line of application code. First: **KRaft mode** — no ZooKeeper. Our cluster is self-managed with the Raft consensus protocol. Simpler, faster, one less system to operate. Second: **Rack Awareness** — our 9 brokers are spread across 3 availability zones, 3 brokers per zone. Every partition's 3 replicas land in 3 different zones. One zone goes down, we lose nothing. Third: **Auto Topic Creation is disabled** — every topic is provisioned deliberately via Terraform, with explicit partition counts, replication factors, and retention policies. No topic ever gets created accidentally with default settings.
+
+**Alex:** And the topics themselves?
+
+**Priya:** Naming convention first: `{domain}.{subdomain}.{entity}.{version}`. So: `trading.equities.trade-events.v1`, `risk.credit.exposure-updates.v1`, `compliance.surveillance.alerts.v1`, `reference.instruments.v1`. Anyone can read the topic catalogue and understand who owns what.
+
+**Alex:** Now the producers. Trade events start somewhere.
+
+**Priya:** The Order Management System is the primary **Producer**. It's configured with `acks=all` — the broker only acknowledges a trade event once all in-sync replicas have it. `min.insync.replicas=2` on the topic ensures at least 2 brokers have it before the OMS gets confirmation. **Idempotent producer** is enabled — sequence numbers on every message, so network retries never produce duplicates. **Unclean Leader Election** is disabled — we will never elect a stale replica as Leader and risk data loss. Accuracy over availability, always.
+
+**Alex:** What's the message format?
+
+**Priya:** **Avro** with a **Schema Registry**. The `TradeEvent` schema is registered, versioned, and compatibility-checked as part of CI. Every field is strongly typed: `quantity` is a `long`, `price` is a `double`, `currency` is an enum. When the regulation changes and we need to add an LEI field — we add it as an optional field with a default, register a new compatible schema version, and consumers reading old messages still work. **Backward compatibility** is enforced automatically by the Schema Registry in the pipeline; a breaking change blocks deployment.
+
+**Alex:** Walk me through the **Broker** configuration.
+
+**Priya:** **Replication Factor** of 3 across all critical topics. The `trade-events` topic has 24 **Partitions** — sized for our peak consumer instance count of 20, with headroom. Partitioned by `instrumentId` so all trades for the same instrument land in the same partition — ordering within an instrument is preserved. **Retention Policy**: 30 days for trade events for regulatory replay; 7 days for market data prices — we don't need old tick data after a week. Market data prices use **Compacted Topics** as a secondary topic — the compacted version maintains the latest price per instrument key, available for new consumers to bootstrap without replaying 7 days of ticks. **Tiered Storage** moves data older than 7 days to S3 on the trade-events topic — fast SSD for recent data, cheap object storage for regulatory retention.
+
+**Alex:** Now Kafka Connect — you mentioned legacy systems and CDC.
+
+**Priya:** Two connectors in production. First: a **Debezium CDC Source Connector** on our core banking Oracle database. It reads the database transaction log and publishes every INSERT and UPDATE on the `positions` table to Kafka in real time — no changes to the legacy application. This gives us the **Change Data Capture** stream that downstream systems depend on. Second: an Elasticsearch **Sink Connector** that consumes enriched trade events and writes them to our trade search index — compliance officers can search any trade within seconds of execution, no batch ETL involved.
+
+**Alex:** The **Transactional Outbox Pattern** — where does that appear?
+
+**Priya:** The trade allocation microservice — it writes allocation records to Postgres and must publish an allocation event to Kafka atomically. Both or neither. We use the Outbox Pattern: the allocation is written alongside an outbox event row in the same Postgres transaction. Debezium watches the outbox table and publishes those events to Kafka. The database transaction guarantees atomicity; Debezium guarantees delivery. We never dual-write to a database and Kafka directly — the distributed transaction risk is too high.
+
+**Alex:** Now the Kafka Streams applications. Walk me through the topology.
+
+**Priya:** Three KStreams applications in the processing layer. First: the **Trade Enrichment Service**. It consumes the raw `trading.equities.trade-events.v1` **KStream**. It joins each trade with a **GlobalKTable** of instrument reference data — ISIN codes, asset classes, settlement calendars, exchange identifiers. Because every enrichment instance needs the full instrument universe, not a partitioned slice of it, GlobalKTable is the right choice. The join adds instrument metadata to each raw trade and outputs to `trading.equities.trade-events-enriched.v1`. A **data quality validation stage** runs after deserialization: quantity must be positive, instrument must exist in the reference table, timestamp must be within 5 minutes of now. Events failing validation go to a `trading.equities.trade-events-dlq.v1` **Dead Letter Queue** topic with failure metadata; valid events continue downstream. **Correlation IDs** from the OMS are read from Kafka **Message Headers** and propagated through every downstream event — every log line includes the originating trade's UUID.
+
+**Alex:** Second KStreams application?
+
+**Priya:** The **Real-Time Risk Aggregation Service**. This is stateful — it maintains running position aggregates per client and per instrument. It consumes the enriched trade stream and the positions CDC stream. The **Stream Topology** has a **KStream-KTable join**: the trade stream joins with a KTable of current client credit limits — every trade is checked against the client's limit in milliseconds. Positions are aggregated using **Tumbling Windows** — 1-minute windows for intraday position snapshots, published to the risk dashboard. For intraday exposure monitoring, a **Hopping Window** of 1 hour advancing every 5 minutes gives a rolling exposure metric. State is stored in **RocksDB** locally on each instance. We run with **2 Standby Replicas** per instance — if an instance fails, a standby picks up its partition assignments with minimal RocksDB rebuild. **Interactive Queries** expose the current position state via a REST endpoint — the risk dashboard queries the KStreams state directly, not via a separate database hop.
+
+**Alex:** And the time semantics in this service?
+
+**Priya:** **Event Time** throughout — MiFID II requires us to report based on when the trade occurred, not when we processed it. Kafka Streams uses the trade timestamp embedded in the Avro payload as event time. **Grace Periods** on all windows — 30 seconds for the 1-minute tumbling window — to handle late-arriving events due to network lag from mobile trading clients. **Watermarks** advance as events flow; if an event arrives 45 seconds after its event time, it still falls within the grace period and is included in the correct window's calculation.
+
+**Alex:** Exactly-once — where does that apply?
+
+**Priya:** The risk aggregation writes to both an output topic and updates its RocksDB state store. We run with **EOS v2 — Exactly-Once Semantics** enabled. The state store write and the output topic produce are atomic with the offset commit. If the instance crashes mid-computation, on restart it reads from the last committed offset, and the state store reflects exactly the state at that offset. No double-counting of trades, no missing positions.
+
+**Alex:** Third KStreams application?
+
+**Priya:** The **Compliance Surveillance Service**. This uses **Complex Event Processing** — detecting patterns across sequences of events over time. It looks for wash trading: a client buying and selling the same instrument within a 10-minute window above a notional threshold. The topology: a **KStream-KStream join** with a **Windowed Join** — 10-minute window. Buy events and sell events for the same client and instrument that arrive within 10 minutes of each other produce a suspicious pair event. A second aggregation step counts suspicious pairs per client per hour using a **Session Window** — the session stays open while activity continues, closes after 30 minutes of inactivity. Above a threshold, a compliance alert is published to `compliance.surveillance.alerts.v1`. **ksqlDB** is used by the compliance team for ad-hoc surveillance: analysts write SQL against the enriched trade stream to investigate emerging patterns without writing a Java topology.
+
+**Alex:** What about failure handling across all three?
+
+**Priya:** Every service has a **DeserializationExceptionHandler** that routes malformed messages to the DLQ with error metadata — we never silently skip data. **ProductionExceptionHandler** is set to fail fast on output errors — a missed compliance alert is worse than a brief processing pause. `setUncaughtExceptionHandler` is configured to replace the failed stream thread rather than kill the application — the supervisor spawns a new worker. **Retry Topics** on the enrichment service: if the instrument reference GlobalKTable lookup misses — possible during a reference data refresh — we route to `trades-retry-1` with a 5-second delay, then `trades-retry-2` with 30 seconds, then the DLQ. Transient misses recover; persistent poison pills don't block the main pipeline.
+
+**Alex:** Offset management and threading?
+
+**Priya:** KStreams with EOS v2 — offsets are committed atomically with state and output. The `commit.interval.ms` is tuned to 1 second — acceptable replay window if an instance fails. `num.stream.threads=4` on each instance — 4 parallel stream threads on an 8-core machine. Combined with horizontal scaling to 6 instances, we have 24 threads handling 24 partitions — one task per thread, maximum throughput. **CooperativeStickyAssignor** is configured — on deployments, only the partitions that need to move are revoked. The remaining consumers keep processing. No group-wide pause on every rollout.
+
+**Alex:** Graceful shutdown?
+
+**Priya:** Kubernetes `terminationGracePeriodSeconds=120`. On SIGTERM, the KStreams application calls `streams.close(Duration.ofSeconds(90))` — it stops polling, flushes RocksDB, commits offsets, closes connections. All within the 120-second window before SIGKILL. The **readiness probe** checks that the last successful poll was within the last `max.poll.interval.ms` — if processing stalls, Kubernetes recycles the pod automatically. **Liveness probe** checks the JVM is alive and not deadlocked.
+
+**Alex:** Security?
+
+**Priya:** **TLS** on all broker connections — no plaintext. **SASL/GSSAPI with Kerberos** for authentication — every service account has its own principal, managed by Active Directory. **ACLs** are granular: the OMS service account can produce to `trade-events`, nothing else. The enrichment service can consume from `trade-events` and produce to `trade-events-enriched` only. The compliance service can only consume. **mTLS** on the inter-broker network — brokers mutually authenticate. **Audit Logging** captures every produce, consume, and admin operation — piped into our SIEM for regulatory evidence. PII fields in trade events — client full name, account number — are encrypted using **Crypto-Shredding**: per-client encryption keys stored in a key management service. When a client requests GDPR deletion, we destroy their key. Their encrypted fields in Kafka become unreadable without touching the event log.
+
+**Alex:** Monitoring and operations?
+
+**Priya:** **Consumer Lag** per partition — not just total — tracked in Grafana. If partition 7 of the enrichment service shows 50,000 messages of lag while all others are at zero, we have a **Hot Partition** — likely AAPL during earnings season. Detection: per-partition lag breakdowns in Grafana. Fix: **key salting** on the instrument dimension — AAPL becomes AAPL-0 through AAPL-9, distributed across 10 partitions, partial aggregates merged in a second pass. **JMX Metrics** scraped by a **Kafka Exporter** into Prometheus — broker health, topic throughput, ISR shrink events. ISR shrink is a yellow alert; ISR below min.insync.replicas is red. **OpenTelemetry** spans on every consumer: a parent span per message, child spans for enrichment lookups, risk calculations, output produces. Trace context propagated in Kafka message headers. End-to-end trade journey visible in Jaeger: "OMS publish to Kafka: 2ms, enrichment: 18ms, risk aggregation: 6ms, compliance check: 4ms." When latency jumps to 400ms, we immediately see which step is slow.
+
+**Alex:** CI/CD?
+
+**Priya:** Three tracks. Cluster configuration — Terraform-managed, code-reviewed, no manual `kafka-topics.sh` in production. Schema changes — every PR runs a Schema Registry compatibility check in staging; breaking changes block the pipeline and require a versioned topic migration plan. Application deployments — rolling Kubernetes updates with automated consumer lag verification post-rollout; if lag grows instead of shrinks after deploy, the pipeline triggers an automatic rollback.
+
+**Alex:** Testing strategy?
+
+**Priya:** Three layers. **TopologyTestDriver** for the KStreams unit tests — inject events via `TestInputTopic`, advance the stream clock to trigger window closures and grace period expirations, assert outputs via `TestOutputTopic`. Fast, in-memory, no Kafka cluster. Covers windowed aggregations, joins, DLQ routing, data validation logic. **TestContainers** for integration tests — real Kafka broker, real Schema Registry, real Debezium connector — starts in Docker for the test suite. Catches schema compatibility failures, connector configuration errors, deserialization bugs that only appear with real bytes. Verifies offset commit behaviour: offsets committed after processing, not before. **Staging environment** with 10% production traffic replay for pre-production validation — realistic data volumes, real consumer lag patterns, realistic failure modes.
+
+**Alex:** Let me recap the whole thing. What are we actually running?
+
+**Priya:** A 9-broker KRaft cluster, rack-aware across 3 zones. Topics provisioned as IaC, named by domain convention, versioned for breaking changes. Producers with acks=all, idempotent mode, Avro via Schema Registry. Debezium for CDC, Kafka Connect for sink integrations. Three KStreams applications: enrichment with GlobalKTable joins and data quality gates, risk aggregation with tumbling and hopping windows on event time with grace periods and EOS v2, compliance surveillance with windowed stream-stream joins and CEP pattern detection. DLQ and retry topics on every service. CooperativeStickyAssignor with graceful 90-second shutdown. TLS, Kerberos, ACLs, mTLS, audit logs, crypto-shredding. Consumer lag per partition in Grafana, OpenTelemetry traces end to end, per-partition hot partition detection. TopologyTestDriver unit tests, TestContainers integration tests, schema compatibility CI gates, automated rollback on lag growth.
+
+**Alex:** That's the complete picture. Every concept from the episode — in a system you'd actually run in production.
+
+**Priya:** None of them are ornamental. Each one is there because a real failure scenario demanded it. Acks=all because a broker crashed between acknowledgement and replication once. Grace periods because a mobile client's trade arrived 28 seconds late and fell outside its window. Crypto-shredding because GDPR compliance required it. Standby replicas because a state store rebuild took 4 minutes during a failover and the SLA was 60 seconds. You learn these lessons once. Then you build them in from day one.
+
+**Alex:** Which is exactly why we do this podcast.
+
+---

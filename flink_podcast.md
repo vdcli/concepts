@@ -1131,6 +1131,267 @@ At the **front door**, you have event sources: trading systems, core banking pla
 
 ---
 
+# The Complete Picture: Building a Production Event Processing Application using Flink
+
+**Maya:** Raj, can we tie everything together? Walk me through a real production Flink application — where does each concept actually live?
+
+**Raj:** Let's build a `RealTimeTradeProcessingPlatform` for a financial institution. I'll go layer by layer — not just naming concepts, but showing why each one is where it is and what would break without it.
+
+**Maya:** Perfect. Start at the very beginning — how does data get in?
+
+---
+
+## Layer 1: Event Ingestion & Schema
+
+**Raj:** At the front door you have two data flows. First — live trading activity from your Order Management System and market data feeds. These events arrive in **Apache Kafka**, the central nervous system. Kafka is the conveyor belt that decouples producers (trading systems) from consumers (Flink). The **Kafka Source Connector** gives Flink a continuous stream of these events.
+
+**Maya:** But that's the new events. What about changes to existing data in legacy systems?
+
+**Raj:** That's the second flow — **Flink CDC**, Change Data Capture. Your core banking database is Oracle. It's been running for 20 years. You're not replacing it. Instead, you tap its transaction log: every INSERT, UPDATE, DELETE on the positions table flows into Flink as a changelog stream within milliseconds. Zero code changes to the legacy system.
+
+**Maya:** And the events themselves — what format?
+
+**Raj:** **Avro** for Kafka, **Protobuf** for high-throughput market data. Both are compact binary formats with enforced schemas — far more efficient than JSON. The schemas are registered in a **Schema Registry**, which acts as the contract registry for every message type in the system. The Flink **DeserializationSchema** reads a schema ID from the first bytes of each Kafka message, fetches the matching schema, and converts bytes into typed Java objects. When a producer changes the event format, the Schema Registry enforces compatibility. This is what prevents silent data corruption when your trade event format gains a new field.
+
+---
+
+## Layer 2: Time, Watermarks & Deduplication
+
+**Maya:** The events are flowing in. First thing Flink does with them?
+
+**Raj:** Two things happen immediately at the source. First, **EventTime** extraction. Each event carries a timestamp from the system that created it — the precise moment a trade was placed according to the OMS clock. We tell Flink to use this as the authoritative time, not the clock on the processing server. In finance, regulatory reporting, audit trails, and risk calculations all depend on *when things actually happened* — not when our servers got around to processing them.
+
+**Maya:** And the second thing?
+
+**Raj:** **Watermark** generation. We configure a `BoundedOutOfOrdernessWatermarkStrategy` with a 200-millisecond tolerance. This tells Flink: "I'm confident all events with EventTime up to T have arrived once my processing clock reaches T plus 200ms." This threshold is calibrated to our network latency. Set it too tight and you lose late events. Set it too wide and your windows fire later than needed, introducing latency.
+
+**Maya:** And right after that — deduplication?
+
+**Raj:** Yes, the first processing stage is a **KeyedProcessFunction** dedicated to deduplication. We key the stream by `eventId` — every trade event has a UUID. The function uses **MapState** to remember which event IDs it has already seen. On arrival, it checks the map. If the ID is present, the event is dropped. If not, it's stored in state and the event flows downstream. **State TTL** is set to 24 hours — event IDs older than that are automatically expired, preventing the state from growing unboundedly forever.
+
+**Maya:** So we've deduplicated using MapState and TTL, using EventTime for correct timestamps, Watermarks to know when data is complete. What's next?
+
+---
+
+## Layer 3: Enrichment
+
+**Raj:** The raw trade event from Kafka has an instrument ISIN, a customer ID, a quantity, and a price. But our downstream risk engine needs the full customer risk profile, the instrument's sector classification, and the current FX rate for currency conversion. None of that is in the Kafka event. We need to enrich it.
+
+**Maya:** How?
+
+**Raj:** Three techniques. For customer profiles — a **Lookup Join** backed by **Async I/O**. The lookup fires an async call to a Redis cache for the customer's risk tier and position history. Async I/O means Flink doesn't block the processing thread while waiting for the Redis response — it fires the request, registers a callback, and continues processing other events. When the response arrives, Flink matches it back to the original event. Without Async I/O, one slow Redis call would stall the entire pipeline.
+
+**Maya:** And for the fraud rules — they change frequently?
+
+**Raj:** That's a **Broadcast Join Pattern** using **BroadcastState**. The compliance team manages a stream of fraud rules in a separate Kafka topic. We broadcast this stream to every parallel instance of the enrichment operator. Each instance holds the full current rule set in its BroadcastState. When a trade event arrives, the operator checks it against the broadcasted rules without any network call. The rule set reaches every processing slot simultaneously — like a PA announcement to every desk at once.
+
+**Maya:** And for the current exchange rate?
+
+**Raj:** A **Temporal Table Join**. Exchange rates are slowly changing reference data — they update every few seconds, but they have a history. We join each trade event with the version of the exchange rate table that was valid *at the trade's EventTime*. A trade placed at 14:32:05 gets the exchange rate that was active at 14:32:05 — not the rate that's active right now when we process it. This is point-in-time correctness. Critical for P&L calculations where a stale rate would produce incorrect results.
+
+---
+
+## Layer 4: Fraud Detection with CEP
+
+**Maya:** We have enriched events with customer profiles and rule sets. Now the fraud detection layer?
+
+**Raj:** **Complex Event Processing** using the **Pattern API** and **PatternSelectFunction**. Here's a real pattern we run: detect when the same customer makes a login from a foreign IP, followed by a transaction above $50,000, followed by an international wire transfer — all within 15 minutes. In code, you define three pattern nodes connected by `.next()`, with a within-time constraint.
+
+**Maya:** And Flink scans every customer's event stream for this sequence?
+
+**Raj:** Simultaneously, for every customer, using **KeyedStream** — the stream is keyed by customer ID so all events for the same customer always flow to the same processing slot. When Flink detects a match, the **PatternSelectFunction** fires. It assembles the matching events, computes a risk score, and emits a fraud alert to a dedicated output. These alerts go to Elasticsearch via the **Elasticsearch Sink** for searchable case management, and trigger an HTTP webhook to the alert management system via the **HTTP Sink** with **Async I/O** to keep the pipeline flowing.
+
+**Maya:** And for the patterns that don't fit CEP — more complex stateful logic?
+
+**Raj:** **KeyedProcessFunction**. Specifically for the "unconfirmed trade" pattern: when a trade is placed, we set a timer for 30 seconds. If a settlement confirmation arrives before the timer fires, we cancel the timer — everything normal. If 30 seconds pass with no confirmation, the timer fires and we emit a reconciliation alert. This requires per-key timers and per-key **ValueState** to hold the pending trade — exactly what `KeyedProcessFunction` provides. You can't express this logic with a window.
+
+**Maya:** What about trades arriving after their expected time window?
+
+**Raj:** **Allowed Lateness** on our windows gives a grace period — keep the window alive an extra 5 minutes to accommodate late-arriving confirmations. Events that arrive even after that grace period are routed via **Side Output** to a dead letter topic in Kafka — the **Dead Letter Queue**. Nothing is silently dropped. Operations receives an alert when the DLQ rate spikes.
+
+---
+
+## Layer 5: Risk Aggregation with Windows
+
+**Maya:** The fraud layer handles individual event sequences. Now the aggregation layer?
+
+**Raj:** Real-time risk aggregation using three window types in parallel. First — **Tumbling Windows** of 1 hour, keyed by portfolio. Every hour we produce a clean, non-overlapping summary: total notional, number of trades, largest single position. These feed the overnight regulatory reporting pipeline.
+
+**Maya:** And for live dashboards?
+
+**Raj:** **Sliding Windows** — a 1-hour window that advances every 5 minutes. At any given moment, the risk manager's screen shows rolling 1-hour exposure, updated every 5 minutes. Each trade event can appear in up to 12 windows simultaneously (one per 5-minute slide). The window computation uses **AggregatingState** internally — as each event arrives, the running aggregate is updated immediately, so when the window fires, the result is ready instantly rather than computed over all buffered events at once.
+
+**Maya:** And session-based analysis?
+
+**Raj:** **Session Windows** for trader behaviour profiling. If a trader is active for a period and then goes idle for 30 minutes, Flink closes that trading session and computes session-level metrics. Unusual sessions — abnormally long, abnormally large — feed a second-tier alerting model. We use **ProcessWindowFunction** rather than a simple `WindowFunction` here because we need access to window metadata (session start/end timestamps) and we want to write the session summary to state for the next stage to consume.
+
+**Maya:** And the aggregation functions themselves?
+
+**Raj:** **ReducingState** for simple running sums — current position, cumulative notional. **AggregatingState** when the accumulator type differs from the output type — aggregating a stream of `TradeLeg` objects into a `RiskVector`. **ListState** for collecting all individual trades in a window when we need the full detail (for reconciliation snapshots). The choice of state type determines both memory usage and performance — using ListState for a high-cardinality running sum would be far more expensive than ReducingState.
+
+---
+
+## Layer 6: Flink SQL for Analytics
+
+**Maya:** All this DataStream logic is powerful but requires Java expertise. What about the quants and analysts?
+
+**Raj:** **Flink SQL** and the **Table API**. We register our enriched trade stream as a **Dynamic Table** — a continuously updating table in Flink's SQL engine. Analysts write:
+
+```sql
+SELECT traderId, instrumentSector, SUM(notional) AS totalNotional
+FROM enriched_trades
+WHERE eventTime > NOW() - INTERVAL '1' HOUR
+GROUP BY traderId, instrumentSector
+```
+
+Flink runs this as a continuous query — results update as new trades arrive. The output is a **Changelog Stream** — INSERT and UPDATE operations as the aggregates evolve — which flows back into Kafka via **Upsert Kafka Connector**, maintaining a live materialized view.
+
+**Maya:** And the SQL Gateway?
+
+**Raj:** The **Flink SQL Gateway** exposes the SQL engine over HTTP. Our BI platform submits queries via REST, not by modifying Java code and redeploying the Flink job. The risk analytics team can iterate on queries independently of the engineering team. It also enables **mini-batch optimization** at the SQL layer — instead of processing every single event in isolation, Flink batches 500 events or 50ms worth and processes them together, dramatically reducing state access overhead for aggregation-heavy SQL queries.
+
+---
+
+## Layer 7: Sinks — Where the Results Go
+
+**Maya:** The processed data needs to go somewhere. Walk me through the sink layer.
+
+**Raj:** Five sink destinations, each chosen for a reason. **Apache Iceberg** via the Iceberg Sink Connector for the data lake. Every processed event lands in Iceberg — an open table format queryable by Spark, Trino, and Presto. This is how the real-time pipeline feeds the overnight batch analytics: the same data, one copy, accessible in both worlds.
+
+**Maya:** For the low-latency dashboard API?
+
+**Raj:** **Redis Sink**. Flink writes aggregated risk metrics — current portfolio VaR, real-time P&L, open position counts — into Redis keys keyed by portfolio ID. The dashboard API reads from Redis with microsecond latency. Flink is the producer; Redis is the serving layer. The separation means dashboard queries never hit the Flink pipeline directly.
+
+**Maya:** For the official trade records?
+
+**Raj:** **JDBC Connector** to PostgreSQL, with **Two-Phase Commit (2PC) Sink**. Every trade that completes processing gets written to the authoritative ledger database. We cannot write a trade twice. 2PC means: Flink pre-writes the data in a pending transaction, takes a checkpoint, and only commits the transaction once the checkpoint succeeds. If the job crashes before the checkpoint, the transaction is rolled back. Truly atomic exactly-once writes to the database. This is non-negotiable for financial records.
+
+**Maya:** And for audit and search?
+
+**Raj:** **Elasticsearch Sink** for the fraud case management system — searchable by case ID, customer, date range, risk score. And back to **Kafka** via the **Kafka Sink Connector** for audit events that downstream compliance systems consume. The Upsert Kafka Connector maintains a compacted topic of current positions — when a position changes, the message with that key is updated in place rather than appended.
+
+---
+
+## Layer 8: Fault Tolerance & State Management
+
+**Maya:** This is a financial system. It cannot lose data. How does it survive failures?
+
+**Raj:** **Checkpointing** every 60 seconds to S3. Flink periodically snapshots all state — every ValueState, MapState, ListState, RocksDB store — to durable object storage. If a TaskManager crashes, the job restarts from the last checkpoint. Combined with Kafka's offset management, no event is lost or processed twice — **Exactly-Once Semantics** end to end.
+
+**Maya:** For large state — millions of customer positions?
+
+**Raj:** **RocksDB State Backend**. The customer position state alone is hundreds of gigabytes. That cannot live in JVM heap. RocksDB stores state on local SSD, with memory-mapped reads for hot data. We enable **Incremental Checkpointing** — only the changes since the last checkpoint are written to S3, not the full multi-gigabyte snapshot. Checkpoint time drops from minutes to seconds. The recovery point objective (RPO) for this platform is 60 seconds — worst case, we replay the last 60 seconds of events.
+
+**Maya:** And State TTL throughout?
+
+**Raj:** Yes. Every state descriptor has a TTL appropriate to its purpose. Deduplication state: 24 hours. Fraud pattern matching state: 15 minutes. Unconfirmed trade timers: 5 minutes. RocksDB automatically expires stale entries in the background. Without TTL, state grows indefinitely — eventually exhausting storage and causing the job to fail. TTL is also the GDPR compliance mechanism: personal data in state automatically expires after the retention period.
+
+---
+
+## Layer 9: Deployment on Kubernetes
+
+**Maya:** The application itself — how is it deployed?
+
+**Raj:** **Application Mode** on **Kubernetes** — the modern, cloud-native deployment model. Each Flink job runs as its own self-contained application: its own **JobManager**, its own **TaskManagers**, its own dedicated resources. No resource contention with other jobs. No shared-fate failures.
+
+**Maya:** Why not Session Mode?
+
+**Raj:** In Session Mode, all jobs share one cluster. A memory leak in the reconciliation job takes down the fraud detection job at 2 AM on a Friday. In Application Mode, jobs are isolated. The fraud job's failure doesn't affect anything else. And for our cluster sizing: parallelism is set to 20. We have 5 TaskManagers, each with 4 **Task Slots** — 20 lanes of parallel processing. Enough headroom for peak trading hours. Kubernetes autoscaling handles traffic spikes by adding TaskManager pods.
+
+**Maya:** And the Kubernetes-specific configuration?
+
+**Raj:** Three things. First, **Kubernetes health checks**: the JobManager liveness probe hits the Flink REST API — if the process is alive. The readiness probe checks whether the job is actually running and the checkpoint has completed — a TaskManager that's still loading state from RocksDB after a restart reports not-ready until recovery completes. Second, `terminationGracePeriodSeconds` set to 180 seconds — long enough for a **stop-with-drain** to complete. Third, the entire Flink cluster defined as a Helm chart, version-controlled alongside the application code.
+
+---
+
+## Layer 10: Operations & Performance
+
+**Maya:** Production means something goes wrong eventually. How do you see it before the trading desk calls?
+
+**Raj:** **Flink Metrics** exported to **Prometheus**, visualized in **Grafana**. Key dashboards: throughput per operator (events/second), checkpoint duration and size, consumer lag on Kafka topics, state size per TaskManager, backpressure ratio per operator.
+
+**Maya:** What does a backpressure alert actually mean?
+
+**Raj:** **Backpressure** is when a downstream operator is processing slower than upstream is producing. The Elasticsearch sink starts throwing 429s during a market event. It falls behind. The signal propagates backward — the CEP layer slows down, then the enrichment layer, then the Kafka consumer reduces its fetch rate. Grafana shows the backpressure ratio hitting 1.0 on the sink operator. The alert fires. The fix: either tune Elasticsearch write batch sizes or scale up the sink parallelism.
+
+**Maya:** And for **Data Skew** — AAPL having 10x the volume of everything else?
+
+**Raj:** Two-phase aggregation. Instead of keying purely by `instrumentId`, we salt: `instrumentId + random(0..9)`. This distributes AAPL across 10 slots instead of 1. A second merge stage aggregates the 10 partial results. The Grafana per-subtask breakdown is what reveals the skew — aggregate operator-level metrics hide it. If one subtask has 10x the throughput of its siblings, you have a hot key.
+
+**Maya:** Performance tuning levers?
+
+**Raj:** **Operator Chaining** is on by default — consecutive map and filter operators fuse into one thread, eliminating the inter-thread serialization overhead of passing objects through network buffers between chained operators. **Object Reuse** is enabled for high-throughput market data operators — Flink reuses the same Java object reference for consecutive events rather than allocating new ones, reducing GC pressure. **Managed Memory** is sized at 40% of total memory for the RocksDB-heavy operators. The JVM heap is sized conservatively to minimise GC pause times — we use ZGC for sub-millisecond pauses. In a trading system, a 200ms GC pause is a latency SLA breach.
+
+---
+
+## Layer 11: Observability — Distributed Tracing & Data Quality
+
+**Maya:** When a risk manager says "trade T-12345 is missing from my position" — how do you find it?
+
+**Raj:** **Correlation IDs** in every event header, from birth to grave. The OMS stamps a UUID on the Kafka message header when the trade is created. Every Flink operator extracts it, includes it in every log line, and propagates it to output events. `grep "T-12345"` across your log system shows the full journey: ingested at 14:32:05.001, passed dedup at 14:32:05.003, enrichment lookup completed at 14:32:05.015, written to PostgreSQL at 14:32:05.023. Without correlation IDs, that's 8 hours of log archaeology.
+
+**Maya:** And **OpenTelemetry** on top?
+
+**Raj:** Full distributed trace spans. Enrichment: 12ms. Fraud CEP evaluation: 8ms. PostgreSQL write: 3ms. End-to-end latency per trade, visualized in Grafana Tempo. When end-to-end latency spikes from 30ms to 400ms, you can see exactly which stage is the culprit — enrichment Redis latency, or CEP evaluation, or the JDBC sink.
+
+**Maya:** And **Data Quality Validation**?
+
+**Raj:** A `ProcessFunction` immediately after deserialization — before any business logic. Rules: quantity must be positive, instrument ISIN must match the reference table, timestamp cannot be more than 5 minutes in the future, currency must be a valid ISO 4217 code. Events that fail are routed via **Side Output** to a data quality DLQ topic with the failed rule annotated. Valid events flow downstream untouched. The validation failure rate is monitored in Grafana — 0.05% is noise, a spike to 5% means something upstream broke. Corrupted events silently contaminating your risk aggregation state is a category of disaster that this layer prevents.
+
+---
+
+## Layer 12: CI/CD — Stateful Deployments
+
+**Maya:** How does new code get to production without losing state?
+
+**Raj:** Stateful streaming CI/CD is fundamentally different from regular application deployment. The pipeline: build the fat JAR, run TestHarness unit tests for individual operators, run MiniCluster tests for the full topology, run TestContainers integration tests against real Kafka and PostgreSQL in Docker. Any failure blocks the pipeline.
+
+**Maya:** And the deployment step itself?
+
+**Raj:** Four steps, automated: (1) trigger a **Savepoint** on the running job via the Flink REST API — a manually triggered snapshot of all state. (2) Wait for savepoint completion and verify the path in S3. (3) Deploy the new JAR. (4) Start the new job pointing at the savepoint path — it resumes from exactly the same state with no data loss. Step 5: monitor for 5 minutes. Consumer lag recovering? Checkpoint completing in normal time? State loading correctly? If anything is wrong, start the old version from the same savepoint — 5-minute rollback with full state.
+
+**Maya:** And for code changes that affect the state schema?
+
+**Raj:** **State Migration & Schema Evolution**. We use Avro for serializing complex state objects — not Java serialization. Avro gives us schema evolution for free: adding a new field with a default value is backward-compatible. The old savepoint contains Avro-serialized state; the new code registers the new schema version in the Schema Registry and reads the old data correctly. For breaking changes — removing a field — we follow a two-step migration: first deploy that ignores the old field, then deploy the code that removes it.
+
+---
+
+## Layer 13: Security & Compliance
+
+**Maya:** Financial infrastructure. Security is non-negotiable.
+
+**Raj:** **Kerberos Authentication** for all service-to-service connections — Flink to Kafka, Flink to HDFS for checkpoints. Every service proves its identity via the Kerberos KDC. An unauthorized process cannot impersonate the Flink job to read from the trading event topic. **SSL/TLS** on every connection — between TaskManagers, between Flink and Kafka, between Flink and PostgreSQL. All data in motion is encrypted. Non-negotiable in an environment where messages contain account numbers, trade details, and PII.
+
+**Maya:** And **PII Redaction**?
+
+**Raj:** A dedicated `MapFunction` in the enrichment layer that masks sensitive fields before events reach the analytics sinks. Account numbers are hashed. Customer names are replaced with pseudonyms. The Iceberg sink and Elasticsearch sink never receive raw PII — only the PostgreSQL ledger sink, which has its own row-level access controls, receives full detail. Data scientists working on fraud models see pseudonymized data.
+
+**Maya:** Audit trails?
+
+**Raj:** **Audit Logging Streams** — a dedicated Side Output from every stateful operator. "At 14:32:05.023, trade T-12345 was processed. Fraud score: 0.12. Rule applied: RULE-047. Decision: PASS." These audit events flow to an append-only Kafka topic with a 7-year retention policy. Immutable. Queryable. Compliant with MiFID II audit requirements. No system action goes unlogged.
+
+**Maya:** And **GDPR Right-to-Erasure**?
+
+**Raj:** Three-layer strategy. First — **State TTL** on all customer-keyed state: personal data expires automatically after the retention period. Second — per-customer encryption keys: customer profile data in state is encrypted with a key stored in a key management service. Erasing a customer means deleting their key — all their data in Flink state becomes unreadable without touching the state directly. Third — the correlation ID design: all events referencing a customer ID can be located and purged from the audit log in response to an erasure request. This is designed in from day one, not retrofitted from a compliance audit finding.
+
+---
+
+## Bringing It All Together
+
+**Maya:** Raj, if you had to describe the full system in one breath?
+
+**Raj:** Events originate from trading systems and legacy Oracle databases. They flow into Kafka — normalized, timestamped, schema-registered. Flink reads them with the Kafka Source and Flink CDC connectors, assigns EventTime, generates Watermarks, and immediately deduplicates via KeyedProcessFunction with MapState and TTL. An enrichment layer uses Async I/O for Redis lookups, a Broadcast Join for real-time fraud rules, and a Temporal Table Join for point-in-time exchange rates. A CEP layer using Pattern API and KeyedProcessFunction detects fraud patterns and unconfirmed trade timeouts — bad events route to DLQs via Side Outputs. A windowing layer computes tumbling hourly summaries, sliding real-time risk aggregations, and session-level trader analytics using all five state types. Flink SQL exposes the results to analysts via Dynamic Tables and the SQL Gateway. Results write to Iceberg for the data lake, Redis for the dashboard API, PostgreSQL with 2PC for the authoritative ledger, and Elasticsearch for case management. RocksDB holds the large state with incremental checkpointing to S3 every 60 seconds. Everything runs in Application Mode on Kubernetes with proper health checks and graceful drain shutdown. Prometheus and Grafana monitor throughput, backpressure, and checkpoint health. Correlation IDs and OpenTelemetry spans trace every trade across every operator. Data quality validation intercepts corrupted events before they reach business logic. Kerberos, SSL, PII redaction, audit streams, and TTL-based GDPR erasure bake compliance in from the start. And the CI/CD pipeline automates savepoint-based deployments with automatic rollback.
+
+**Maya:** Every concept with a reason to exist.
+
+**Raj:** That's exactly it. Watermarks exist because clocks lie. RocksDB exists because RAM is finite. Two-phase commit exists because money is real. CEP exists because fraud is clever. Application Mode exists because someone's memory leak killed a shared cluster at 2 AM. Correlation IDs exist because someone spent 8 hours finding one missing trade without them. Every concept in this system is the answer to a real production problem.
+
+**Maya:** That's the complete picture.
+
+---
+
+---
+
 ## 📋 Concept Index
 
 | # | Concept | Part | Topic Area |
