@@ -92,38 +92,146 @@
 
 **Sam:** Before we move further — can we talk about the actual Java collections? `ArrayList`, `HashMap`, `HashSet` — I use them constantly but I'm not always sure I'm picking the right one.
 
-**Nadia:** Great instinct to pause here. The Collections Framework is Java's built-in library of data structures. Knowing which to pick — based on what operations you need and their time complexity — is fundamental. Let me run through the most important ones.
+**Nadia:** Great instinct to pause here. The Collections Framework is Java's built-in library of data structures. Think of it in three buckets: **Lists** (ordered sequences), **Sets** (unique elements), and **Maps** (key-value pairs). Each bucket has three variants: fast-but-unordered, sorted, and insertion-ordered. Once you see the pattern, picking the right one becomes mechanical.
 
-**Sam:** Starting with Lists?
+**Sam:** Let's go bucket by bucket. Lists first.
 
-**Nadia:** **`ArrayList`** — backed by a resizable array. Random access by index is O(1) — lightning fast. Appending to the end is amortized O(1). But inserting or removing from the *middle* is O(n) — everything after the insertion point has to shift. Use it when you mostly read by index or append to the end.
+**Nadia:** Lists maintain order and allow duplicates.
 
-**`LinkedList`** — a doubly-linked list. Insertion and removal at the head or tail is O(1). But random access is O(n) — to get element 500, you walk from the beginning. In practice, `LinkedList` is rarely the right choice. Its memory overhead and cache unfriendliness makes it slower than `ArrayList` for most real-world use cases, despite the theoretical insert advantage.
+**`ArrayList`** — backed by a resizable array. Random access by index is O(1) — lightning fast. Appending to the end is amortized O(1). But inserting or removing from the *middle* is O(n) — everything after that point has to shift. Use it whenever you mostly read by index or append to the end.
+
+```java
+List<String> names = new ArrayList<>();
+names.add("Alice");       // O(1) - append to end
+names.add("Bob");
+names.get(0);             // O(1) - random access by index
+names.add(0, "Zara");     // O(n) - shifts Alice and Bob right — avoid mid-list inserts
+```
+
+**`LinkedList`** — a doubly-linked list. Inserting at the head or tail is O(1). But random access is O(n) — to get element 500, you walk from the beginning. In practice, `LinkedList` is rarely the right choice. Its memory overhead and CPU cache unfriendliness make it slower than `ArrayList` for most real-world workloads, despite the theoretical insert advantage.
 
 **Sam:** Rule of thumb — always `ArrayList` for lists?
 
-**Nadia:** Almost always. For maps — **`HashMap`** is O(1) average for get/put. The workhorse of Java. Keys are stored based on `hashCode()`. Two critical requirements: objects used as keys must have correct `equals()` and `hashCode()` implementations. If two equal objects have different hash codes, your keys will silently disappear.
+**Nadia:** Almost always, yes. Now Maps.
 
-**`TreeMap`** keeps keys *sorted* — O(log n) for get/put. Use it when you need to iterate keys in order, or need `floorKey()`, `ceilingKey()`, or `subMap()`.
+Maps store key-value pairs. The key family mirrors the list pattern:
 
-**`LinkedHashMap`** maintains *insertion order*. Iteration is in the order you inserted. Great for building LRU caches (access-order mode) or when output order must match input order.
-
-**Sam:** And Sets?
-
-**Nadia:** Same pattern. **`HashSet`** — O(1) add/contains, no order. **`TreeSet`** — sorted, O(log n). **`LinkedHashSet`** — insertion-ordered. Sets are backed by their map equivalents — `HashSet` is literally a `HashMap` with dummy values.
-
-And one important one: **`ArrayDeque`** for stack and queue operations. Don't use the old `Stack` class — it extends `Vector`, which is synchronized with no benefit in modern code. `ArrayDeque` is faster and the right choice.
-
-**Sam:** `Comparable` vs `Comparator` — when sorting?
-
-**Nadia:** **`Comparable`** is implemented by the object itself — it defines the *natural ordering*. `String` implements `Comparable` — alphabetical order. `Integer` — numeric order. When your class has an obvious, single natural ordering, implement `Comparable<YourClass>`.
-
-**`Comparator`** is an *external* ordering strategy — you define it separately. Use it when the class isn't yours to modify, when you need multiple different orderings, or when you're sorting by a specific field. With Java 8 lambdas, it's beautifully concise:
+**`HashMap`** — O(1) average for get/put. The workhorse of Java. Keys are hashed — that's how fast lookup is achieved. Two critical rules: objects used as keys *must* have correct `equals()` and `hashCode()` implementations. If two equal objects produce different hash codes, your entries will silently vanish or duplicate.
 
 ```java
-trades.sort(Comparator.comparing(Trade::getDate)
-                      .thenComparing(Trade::getValue));
+Map<String, Integer> scores = new HashMap<>();
+scores.put("Alice", 95);
+scores.put("Bob", 87);
+scores.get("Alice");         // O(1) - hash lookup
+scores.containsKey("Bob");   // O(1)
 ```
+
+**`TreeMap`** — keeps keys *sorted* in natural order (or by a `Comparator` you supply). O(log n) for get/put. Use it when you need keys in order or range operations:
+
+```java
+TreeMap<String, Integer> sorted = new TreeMap<>(scores);
+sorted.firstKey();                       // "Alice" — alphabetically first
+sorted.subMap("A", "C");                 // all keys from A up to (not including) C
+sorted.floorKey("B");                    // greatest key ≤ "B"
+```
+
+**`LinkedHashMap`** — maintains *insertion order*. Iteration visits keys in the order you put them. Great when output order must match input order, or for LRU caches (pass `true` as the third constructor argument to switch to access-order mode).
+
+```java
+Map<String, Integer> ordered = new LinkedHashMap<>();
+ordered.put("Banana", 2);
+ordered.put("Apple", 5);
+ordered.put("Cherry", 1);
+// Iterates as: Banana → Apple → Cherry (insertion order, not alphabetical)
+```
+
+**Sam:** And Sets — same pattern?
+
+**Nadia:** Exactly the same pattern, just without values. Sets store unique elements — adding a duplicate silently does nothing.
+
+**`HashSet`** — O(1) add/contains, no guaranteed order. **`TreeSet`** — sorted, O(log n). **`LinkedHashSet`** — insertion-ordered. Under the hood, Sets are literally backed by their Map counterparts — `HashSet` is a `HashMap` with a dummy placeholder as the value.
+
+```java
+Set<String> unique = new HashSet<>();
+unique.add("Alice");
+unique.add("Alice");     // silently ignored — already present
+unique.size();           // 1
+
+Set<String> sorted = new TreeSet<>(unique);
+// Iteration guaranteed in alphabetical order
+```
+
+**Sam:** What about queues and stacks?
+
+**Nadia:** Use **`ArrayDeque`** — it handles both. It's a double-ended queue, so it works as a stack (push/pop from one end) or a queue (add to tail, poll from head).
+
+```java
+Deque<String> stack = new ArrayDeque<>();
+stack.push("first");
+stack.push("second");
+stack.pop();    // "second" — LIFO
+
+Queue<String> queue = new ArrayDeque<>();
+queue.offer("first");
+queue.offer("second");
+queue.poll();   // "first" — FIFO
+```
+
+Don't use the old `Stack` class — it extends `Vector`, which is synchronized and slow for no benefit in modern code.
+
+**Sam:** Quick summary before Comparable/Comparator?
+
+**Nadia:** Here's the whole thing as a decision table:
+
+| Need | Use |
+|------|-----|
+| Ordered list, read by index | `ArrayList` |
+| Queue / stack | `ArrayDeque` |
+| Key-value, fast lookup | `HashMap` |
+| Key-value, sorted keys | `TreeMap` |
+| Key-value, preserve insert order | `LinkedHashMap` |
+| Unique elements, fast lookup | `HashSet` |
+| Unique elements, sorted | `TreeSet` |
+| Unique elements, preserve insert order | `LinkedHashSet` |
+
+**Sam:** Now `Comparable` vs `Comparator` — when sorting, which do I use?
+
+**Nadia:** Think of it this way: **`Comparable`** is built *into* the class — the object knows its own natural ordering. **`Comparator`** is *external* — a separate object that defines a specific ordering strategy.
+
+`Comparable` — implement it when your class has one obvious, built-in sort order. `String` sorts alphabetically, `Integer` sorts numerically — both implement `Comparable`. You implement `compareTo()`, and then `Collections.sort()` or `List.sort()` just works:
+
+```java
+public class Trade implements Comparable<Trade> {
+    private LocalDate date;
+    private double value;
+
+    @Override
+    public int compareTo(Trade other) {
+        return this.date.compareTo(other.date);  // natural order: by date
+    }
+}
+
+List<Trade> trades = new ArrayList<>(...);
+Collections.sort(trades);   // uses compareTo — sorts by date automatically
+```
+
+`Comparator` — use it when: the class isn't yours to modify, you need multiple different orderings, or you want to sort by a specific field on the fly. With Java 8 lambdas it's beautifully concise:
+
+```java
+// Sort by value descending, then by date as tiebreaker
+trades.sort(Comparator.comparingDouble(Trade::getValue).reversed()
+                      .thenComparing(Trade::getDate));
+
+// Or extract a one-off comparator for reuse
+Comparator<Trade> byValue = Comparator.comparingDouble(Trade::getValue);
+Comparator<Trade> byDate  = Comparator.comparing(Trade::getDate);
+
+trades.sort(byValue.thenComparing(byDate));
+```
+
+**Sam:** So: `Comparable` for the default "natural" sort baked into the class, `Comparator` for everything else?
+
+**Nadia:** Exactly. And they compose — you can chain `.thenComparing()` as many times as you need.
 
 **Sam:** Collections in one sentence?
 
@@ -267,6 +375,45 @@ It's like a bathroom with a single key — whoever has the key is inside; everyo
 **Sam:** What about `ReentrantLock`?
 
 **Nadia:** `ReentrantLock` is the more powerful, flexible alternative from `java.util.concurrent.locks`. It does everything `synchronized` does, but adds: *try-lock* (try to acquire, but don't block forever), *timed lock* (wait at most X milliseconds), and *fair lock* (threads get the lock in the order they requested it, preventing starvation).
+
+Think of it like a **hotel front desk with a numbered ticket system**. With `synchronized`, the bathroom analogy applies — you either get in or you stand there blocked, forever, with no options. With `ReentrantLock`, it's more like queuing at a hotel desk:
+
+- **Try-lock** — you walk up, if the desk is free you're served immediately; if not, you walk away and do something else rather than waiting. (`tryLock()`)
+- **Timed lock** — you're willing to wait, but only 5 minutes; after that you leave. (`tryLock(5, TimeUnit.SECONDS)`)
+- **Fair lock** — tickets are issued in order, so no thread ever gets starved by others jumping the queue. (`new ReentrantLock(true)`)
+- **Reentrant** — the name itself: if *you already hold the lock* and you re-enter the same block, you're not blocked by yourself. The lock keeps a counter — it's released only when you've unlocked as many times as you locked.
+
+```java
+ReentrantLock lock = new ReentrantLock();
+
+// Basic usage — always unlock in finally
+lock.lock();
+try {
+    processTrade(trade);
+} finally {
+    lock.unlock();   // guaranteed release even if exception thrown
+}
+
+// Try-lock — non-blocking attempt
+if (lock.tryLock()) {
+    try {
+        processTrade(trade);
+    } finally {
+        lock.unlock();
+    }
+} else {
+    // Lock was busy — do something else or queue the task
+}
+
+// Timed lock — wait at most 500ms
+if (lock.tryLock(500, TimeUnit.MILLISECONDS)) {
+    try {
+        processTrade(trade);
+    } finally {
+        lock.unlock();
+    }
+}
+```
 
 **Sam:** When would you use one over the other?
 
