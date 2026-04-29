@@ -137,8 +137,21 @@
 
 ### 🏗️ Design & Architecture
 
-11. **Design Patterns** — Proven solutions to recurring design problems. Key ones: **Singleton** (one shared instance), **Factory** (delegate object creation), **Builder** (construct complex objects step-by-step), **Strategy** (swap algorithms at runtime), **Observer** (notify listeners of changes). *Like architectural blueprints for common room layouts — you don't redesign a kitchen from scratch every time.*
-12. **SOLID Principles** — Five rules for clean OO design: **S**ingle Responsibility (one reason to change), **O**pen/Closed (open for extension, closed for modification), **L**iskov Substitution (subclasses must honour the parent contract), **I**nterface Segregation (small focused interfaces), **D**ependency Inversion (depend on abstractions, not concretions). *The SOLID rulebook for keeping code readable and changeable as it grows.*
+11. **Design Patterns** — Named, reusable solutions to problems that keep appearing in OO code. You don't invent them — you recognise the situation and apply the right pattern:
+    - **Singleton** — Only one instance ever exists (e.g. a shared config object). Prevents duplicated state.
+    - **Factory** — A method/class decides *which* object to create, so callers don't `new` things directly. Easy to swap implementations later.
+    - **Builder** — Assembles a complex object step-by-step (`user.name("A").age(30).build()`). Avoids a constructor with 10 parameters.
+    - **Strategy** — Swap an algorithm at runtime by passing different behaviour objects (e.g. different sort/payment strategies). No `if/else` chains.
+    - **Observer** — Objects subscribe to events; when something changes, all subscribers are notified automatically (e.g. event listeners, Spring events).
+    *Think of patterns as named moves in chess — once you know "castling", you don't re-explain it every game.*
+
+12. **SOLID Principles** — Five rules that stop OO code from becoming a tangled mess as it grows:
+    - **S**ingle Responsibility — A class should do *one thing*. A `UserService` shouldn't also format emails — that's a second reason to change it.
+    - **O**pen/Closed — Add new behaviour by *extending* (new subclass / strategy), not by editing existing working code. Reduces risk of breaking things.
+    - **L**iskov Substitution — Any subclass must be usable wherever the parent is expected — no surprises. If `Bird` has `fly()`, a `Penguin` subclass that throws an exception breaks this.
+    - **I**nterface Segregation — Don't force a class to implement methods it doesn't need. Split fat interfaces into small, focused ones.
+    - **D**ependency Inversion — High-level code should depend on an *interface*, not a concrete class. Lets you swap implementations (real DB vs. mock) without touching the calling code.
+    *SOLID is not about perfection — it's about keeping future changes cheap and low-risk.*
 13. **Dependency Injection (DI)** — Rather than a class creating its own dependencies, they are provided (injected) from outside. Spring's IoC container does this automatically. Makes testing easy — swap real dependencies for mocks. *Like a chef who doesn't grow their own vegetables — ingredients are delivered to them, so they can focus on cooking.*
 14. **Interfaces & Abstract Classes** — An **interface** is a pure contract (what a class must do). An **abstract class** provides partial implementation (some done, some left for subclasses). Both enable polymorphism. *An interface is a job description; an abstract class is a partial draft of the role that subclasses complete.*
 
@@ -192,8 +205,21 @@
 
 ### 🏗️ Design & Architecture
 
-12. **Design Patterns** — Reusable solutions to common design problems. **Repository** abstracts data access behind an interface; **Factory** centralises object creation; **Singleton** ensures one shared instance; **Dependency Injection** passes collaborators in rather than creating them. *Patterns are the grammar of clean code — you recognize them instantly, making unfamiliar codebases readable.*
-13. **SOLID Principles** — Five rules that keep Python code maintainable as it grows: one responsibility per class, extend rather than modify, honour parent contracts in subclasses, keep interfaces small, and depend on abstractions not concrete implementations.
+12. **Design Patterns** — Named, reusable solutions to problems that keep appearing in code. You recognise the situation and apply the right pattern:
+    - **Repository** — Hides all DB/query logic behind a clean interface (`UserRepo.find_by_id()`). The caller never knows if it's Postgres or a mock.
+    - **Factory** — A function/class decides *which* object to create, so callers don't instantiate directly. Easy to swap or extend.
+    - **Singleton** — One shared instance for the lifetime of the app (e.g. a DB connection pool). Use sparingly — can make testing hard.
+    - **Strategy** — Pass different behaviour as a function/object (e.g. different tax calculators). Eliminates long `if/elif` chains.
+    - **Observer** — Objects subscribe to events; when state changes, subscribers are notified (e.g. Django signals, event buses).
+    *Patterns are a shared vocabulary — saying "use a Strategy here" instantly communicates the design intent to any teammate.*
+
+13. **SOLID Principles** — Five rules that stop code from becoming a tangled mess as it grows:
+    - **S**ingle Responsibility — Each class/function does *one thing*. A `UserService` shouldn't also render HTML — that's a second reason to change it.
+    - **O**pen/Closed — Add behaviour by *extending* (new subclass / passing a new strategy), not by editing working code. Reduces breakage risk.
+    - **L**iskov Substitution — A subclass must behave correctly wherever the parent is expected — no surprising exceptions or silent ignores.
+    - **I**nterface Segregation — Don't force a class to implement methods it doesn't need. Use small, focused ABCs/protocols instead of one fat one.
+    - **D**ependency Inversion — Depend on an *abstraction* (ABC / Protocol), not a concrete class. Lets you swap real DB for a fake in tests without touching calling code.
+    *SOLID is not about perfection — it's about keeping future changes cheap and low-risk.*
 14. **Configuration Management** — Load all config from environment variables or a `.env` file at startup using `pydantic-settings` or `python-decouple`. Never hardcode secrets or environment-specific values in source code. *Like a rental car: you plug in your destination, not rewire the engine — same car, different journey.*
 15. **Logging** — Replace `print()` with the `logging` module and structured logging (`structlog`). Log levels (`DEBUG`, `INFO`, `WARNING`, `ERROR`) let you control verbosity per environment. Attach a request ID to every log entry for traceability. *Like a ship's log: timestamped entries at the right level of detail, readable by anyone doing an investigation later.*
 
@@ -640,6 +666,44 @@
 
 8. **Producer Acknowledgements (acks)** — Controls how durable a write is before the producer considers it successful. `acks=0`: fire-and-forget (fastest, risky). `acks=1`: leader confirms. `acks=all`: all in-sync replicas confirm (safest — use in production). *Like sending a letter: `acks=0` is dropping it in a bin and walking away; `acks=all` is waiting for a signed delivery confirmation from every recipient.*
 9. **Idempotent Producer** — If a produce request times out, the producer retries — but the original might have succeeded, causing duplicates. An idempotent producer (enabled with `enable.idempotence=true`) stamps each message with a sequence number; the broker deduplicates. *Like numbered pages in a submission: if the same page is sent twice, the editor discards the duplicate.*
+
+   **Three Things That Can Go Wrong**
+
+   **Problem 1: Network glitch during send**
+
+   Your app sends a message, Kafka receives it, but the acknowledgment gets lost. Your app thinks it failed and sends again. Kafka now has two copies.
+
+   ```
+   App → "Order #123" → Kafka ✓ (received)
+   App ← ✗ (ack lost in network)
+   App → "Order #123" → Kafka ✓ (duplicate!)
+   ```
+
+   **Fix:** `enable.idempotence=true` — Kafka now tracks sequence numbers. If it sees the same message twice, it ignores the second one. Zero code changes needed.
+
+   ---
+
+   **Problem 2: Your app crashed and restarted**
+
+   Your app crashes mid-send. On restart it's a brand new process — Kafka doesn't know it's the same app. So sequence number tracking starts over, and duplicates can sneak through again.
+
+   **Fix:** `transactional.id = "my-app-instance-1"` — This is like giving your app a permanent name. Even after a crash, Kafka recognizes it and picks up where it left off.
+
+   ---
+
+   **Problem 3: Consumer crashes after reading but before finishing**
+
+   Your consumer read a message and started processing, then crashed before it could say "done". On restart, Kafka re-delivers that message.
+
+   ```
+   Consumer reads "Order #123"
+   Consumer starts processing...
+   💥 Consumer crashes
+   Consumer restarts
+   Kafka: "here's Order #123 again" ← duplicate processing
+   ```
+
+   **Fix:** Keep a record of what you've already processed (in Redis or a database). Before processing, ask "have I seen this before?"
 10. **Batching & Compression** — Producers buffer messages in memory and send them in batches (`batch.size`, `linger.ms`). Batches are compressed (gzip, snappy, lz4) before sending. Higher throughput, lower network cost. *Like filling a truck before dispatching it: sending one truckload is more efficient than hundreds of individual car trips.*
 11. **Partitioning Strategy** — Messages with the same **key** always go to the same partition (consistent hashing), guaranteeing ordering for that key. Messages without a key are distributed round-robin. *Like routing all transactions for the same account to the same processing desk: order is preserved for each account.*
 
@@ -653,6 +717,50 @@
 ### ✅ Reliability & Delivery Semantics
 
 16. **At-Most-Once, At-Least-Once, Exactly-Once** — **At-most-once**: messages may be lost but never duplicated (commit before processing). **At-least-once**: no loss but possible duplicates (commit after processing). **Exactly-once (EOS)**: no loss, no duplicates — requires idempotent producers + transactional API. *Like a payment: at-most-once is risky (might not charge), at-least-once risks double charge, exactly-once is what banks implement.*
+
+   **📬 The Postal Worker Analogy**
+
+   Imagine you hire a postal worker to deliver an important letter. You have three different workers to choose from:
+
+   **1️⃣ At-Most-Once — "The Careless Worker"**
+
+   > *"I'll attempt delivery once. If something goes wrong, I move on."*
+
+   The worker grabs the letter, marks it **"delivered"** in his logbook **before even leaving the office**, then heads out. If he loses it on the way, drops it in a puddle, or forgets it on the bus — the letter is gone forever. His logbook says delivered. Nobody will try again.
+
+   **Result:** You might receive it. You might not. But you'll **never get it twice.**
+   **Real world:** Fire-and-forget logs, metrics — losing a few is acceptable.
+
+   ---
+
+   **2️⃣ At-Least-Once — "The Anxious Worker"**
+
+   > *"I will not rest until I get a signature. I'll keep trying."*
+
+   The worker delivers the letter and only marks it **"delivered"** after getting your signature. But if the network cuts out just after you signed but before his logbook updates — he thinks it failed and **rings your doorbell again** with the same letter. You now have two identical letters.
+
+   **Result:** You'll definitely receive it. But you **might get it twice.**
+   **Real world:** Most messaging systems default to this — safe but needs idempotent consumers.
+
+   ---
+
+   **3️⃣ Exactly-Once — "The Professional Courier"**
+
+   > *"One delivery. Confirmed. No duplicates. Ever."*
+
+   Uses a **tracked parcel ID** (idempotent producer = sequence numbers) and a **formal handoff protocol** (transactional API = atomic commit). If the delivery attempt fails and retries, the receiving depot checks: *"Have we already accepted parcel #A4B7?"* — and rejects the duplicate. The logbook and the delivery update **atomically** — either both happen or neither does.
+
+   **Result:** Exactly one delivery. Guaranteed.
+   **Real world:** Bank transfers, order fulfilment — correctness is non-negotiable.
+
+   | | At-Most-Once | At-Least-Once | Exactly-Once |
+   |---|---|---|---|
+   | **Worker type** | Careless | Anxious | Professional |
+   | **Message lost?** | Possible ❌ | Never ✅ | Never ✅ |
+   | **Duplicates?** | Never ✅ | Possible ❌ | Never ✅ |
+   | **When to use** | Metrics, logs | Most pipelines | Payments, orders |
+   | **Kafka config** | `acks=0`, commit before process | `acks=all`, commit after process | `enable.idempotence=true` + `transactional.id` |
+   | **Cost** | Cheapest 🟢 | Medium 🟡 | Most expensive 🔴 |
 17. **Transactions** — Kafka's transactional API atomically writes to multiple partitions/topics in one logical operation. Either all writes succeed or none are visible to consumers. Essential for exactly-once stream processing pipelines. *Like a database transaction: all inserts commit or none do — no partial updates visible to readers.*
 18. **In-Sync Replicas (ISR)** — The set of followers fully caught up with the leader. `min.insync.replicas=2` means at least 2 replicas (leader + 1 follower) must confirm a write. If ISR shrinks below this, writes are rejected — preventing silent data loss on leader failover. *Like requiring two signatures on a cheque: if only one signer is available, the bank won't process it.*
 
@@ -684,6 +792,66 @@
 3. **Standby Replicas** — Configure `num.standby.replicas=1` and Kafka Streams keeps a warm copy of each state store on a different instance. On failure, the standby takes over almost instantly without replaying the full changelog. *Like an understudy in a play: they've rehearsed the role and can step on stage immediately if the lead is unavailable.*
 4. **Windowing** — Stream processing often needs to compute over a rolling time window (last 5 minutes of clicks). **Tumbling**: fixed-size, non-overlapping buckets (each minute is its own window). **Hopping**: fixed-size, overlapping (a new window every 30s, covering the last 5 minutes). **Session**: activity-based, gaps in activity close the window. *Like slicing time into report periods: daily, weekly, or "while the user is active."*
 5. **Late Arriving Data & Grace Periods** — In event-time processing, events from mobile devices or slow networks can arrive minutes after the event occurred. A **grace period** keeps a window open after its nominal end time to accept stragglers. After the grace period, late data is dropped or routed to a side output. *Like a meeting that officially ends at 3 PM but the door stays open until 3:10 for latecomers.*
+
+### 🗂️ Internal Topics — `__consumer_offsets` vs. Changelog Topic
+
+Two different internal Kafka topics work together to enable full recovery for Kafka Streams:
+
+| Property | `__consumer_offsets` | Changelog Topic |
+|---|---|---|
+| **Purpose** | Track read position in the input topic | Track state store contents (RocksDB) |
+| **Created by** | Kafka broker automatically | Kafka Streams automatically |
+| **Naming** | Always `__consumer_offsets` | `<app-id>-<store-name>-changelog` |
+| **Content** | `(group_id, topic, partition)` → offset number | Key → current state value |
+| **Format** | Binary (needs special formatter) | Your app's key/value serializers |
+| **Written by** | Consumer on every commit | Kafka Streams on every state store mutation |
+| **Used for recovery** | "Where to resume reading input" | "Rebuild the RocksDB state store" |
+
+With **EOS v2** (`processing.guarantee=exactly_once_v2`) these two writes plus the output topic produce are committed as a **single atomic Kafka transaction** — guaranteeing the offset, the state, and the output are always in sync after a crash.
+
+#### 🔍 Inspecting `__consumer_offsets`
+
+```bash
+# Needs the special binary formatter — data is not plain text
+kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic __consumer_offsets \
+  --from-beginning \
+  --formatter "kafka.coordinator.group.GroupMetadataManager\$OffsetsMessageFormatter"
+```
+
+**Sample output:**
+```
+[my-streams-app, trades, 2]::[OffsetMetadata[1047, NO_METADATA], CommitTime 1714300000000]
+[my-streams-app, trades, 0]::[OffsetMetadata[893,  NO_METADATA], CommitTime 1714300000001]
+```
+
+#### 🔍 Inspecting a Changelog Topic
+
+```bash
+# Changelog topics are plain key-value — readable with the right deserializers
+kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic my-streams-app-counts-store-changelog \
+  --from-beginning \
+  --property print.key=true \
+  --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer \
+  --property value.deserializer=org.apache.kafka.common.serialization.LongDeserializer
+```
+
+**Sample output:**
+```
+clientA    150
+clientB    42
+clientA    175
+clientC    9
+```
+
+#### 🔍 List All Internal Topics
+
+```bash
+kafka-topics.sh --bootstrap-server localhost:9092 --list | grep -E "changelog|__consumer"
+```
 
 ### 🛡️ Fault Tolerance
 
@@ -722,8 +890,36 @@
 
 ### 💾 State Management
 
-6. **Managed State** — Flink provides first-class state primitives scoped per-key: `ValueState` (single value), `ListState` (list), `MapState` (key-value map), `ReducingState` / `AggregatingState` (running aggregates). All are fault-tolerant — Flink checkpoints and restores them automatically. *Like a cashier's running total: Flink keeps per-customer tallies that survive crashes.*
-7. **Keyed State vs. Operator State** — **Keyed state** is partitioned by the stream's key (e.g., user_id) — each key has its own isolated state. **Operator state** (e.g., Kafka offsets stored per operator instance) is scoped to the whole operator, not a key. *Keyed state is a separate pigeonhole for each customer; operator state is one shared notepad for the whole operator.*
+6. **Managed State** — As events flow through Flink, you often need to *remember* something across events — a running total, a list of recent actions, a flag. Flink gives you built-in state containers scoped **per key** (e.g., per user, per account):
+
+   | State Type | What it holds | Example use case |
+   |---|---|---|
+   | `ValueState` | A single value | Last seen price for a stock ticker |
+   | `ListState` | A list of values | Last 10 clicks for a user session |
+   | `MapState` | A key-value map | Item quantities in a shopping cart |
+   | `ReducingState` | A running aggregate (same type in/out) | Running sum of trade amounts |
+   | `AggregatingState` | A running aggregate (different type in/out) | Count + sum → average |
+
+   All state is **automatically checkpointed and restored** by Flink — if the job crashes, it comes back with the same state it had before the crash. *Like a cashier who writes every transaction in a notebook: even if they take a break or get replaced, the next cashier can pick up that notebook and continue without losing the running total.*
+
+7. **Keyed State vs. Operator State** — There are two scopes for where state lives:
+
+   - **Keyed State** — State is isolated **per key** in the stream. Every unique key (e.g., every `user_id`) gets its own private slot of state. Key A's state never mixes with Key B's. This is by far the most common type.
+
+     ```
+     Stream:  [user=A, $10] [user=B, $5] [user=A, $20]
+                   ↓              ↓             ↓
+     State:   A → $30          B → $5        (A updated)
+     ```
+
+   - **Operator State** — State is shared across the **entire operator instance**, not split by key. Rarely used — mainly for things like storing Kafka partition offsets inside a source operator.
+
+     ```
+     Operator Instance 1:  knows it owns Kafka partition 0, offset 1047
+     Operator Instance 2:  knows it owns Kafka partition 1, offset 892
+     ```
+
+   *Keyed state = a separate pigeonhole for every customer. Operator state = one shared notepad for the whole operator, regardless of which customer's data it's processing.*
 8. **State Backends** — Where state is physically stored. `HashMapStateBackend`: in JVM heap memory — fast but limited by heap size. `EmbeddedRocksDBStateBackend`: spills to disk — slower but handles terabytes of state, essential for production jobs with large state. *Like RAM vs. hard drive: RAM is faster but limited; disk is slower but nearly unlimited.*
 9. **Checkpointing** — Flink periodically snapshots all operator state and Kafka offsets using the Chandy-Lamport distributed snapshot algorithm. If the job fails, Flink restarts from the last checkpoint. Combined with transactional sinks, this gives exactly-once guarantees. *Like a video game save point: if you die, you resume from the last save, not from the beginning.*
 10. **Savepoints** — A manually triggered checkpoint that you control. Use before upgrading a job, changing parallelism, or migrating to a different cluster. Unlike automatic checkpoints, savepoints are portable and don't get automatically cleaned up. *Like a "save as" for your job state: take it before making a big change so you can roll back if needed.*
@@ -757,6 +953,109 @@
 
 24. **Deployment Modes** — **Session mode**: one long-running cluster shared by multiple jobs (resource-efficient for development). **Per-Job mode**: dedicated cluster per job (better isolation). **Application mode**: recommended for production — the job's main class runs on the cluster itself, not the submitting client. Run on YARN, Kubernetes, or standalone. *Like shared vs. private offices: shared is cheaper, private is more isolated; you choose based on your scale and isolation needs.*
 25. **Metrics & Monitoring** — Flink exposes metrics via JMX, Prometheus (via reporter plugin), or Datadog. Key metrics: **checkpoint duration** (high = resource pressure), **records-per-second** (throughput), **backpressure ratio** (>0.5 = a bottleneck exists), **numRestarts** (reliability signal). *Like vital signs on a hospital monitor: normal ranges are obvious, and any spike is an alert.*
+
+### ⚖️ When to Choose Flink over Kafka Streams
+
+Both process streaming data from Kafka, but they solve different problems at different scales:
+
+| Scenario | Use Flink | Use Kafka Streams |
+|---|---|---|
+| **State size** | Gigabytes–terabytes (RocksDB → S3/HDFS checkpoint) | Small–medium (local RocksDB, changelog replay) |
+| **Join complexity** | 3+ streams, multi-way SQL joins, Async I/O lookups | Two streams at a time (must be co-partitioned) |
+| **Windowing & watermarks** | Custom watermark strategies, per-partition, bounded out-of-orderness | Built-in tumbling/hopping/session — less flexible |
+| **Batch + Streaming unified** | ✅ Same API handles both (backfill + live) | ❌ Streaming only |
+| **SQL layer** | ✅ Full Flink SQL engine | ❌ No SQL layer |
+| **Scaling model** | Independent cluster (YARN / Kubernetes) — scale separately from app | Embedded in your app — scale by deploying more instances |
+| **Operational overhead** | Higher — separate cluster to manage | Lower — runs inside your Spring Boot / Java app |
+| **Interactive Queries** | ❌ No built-in equivalent | ✅ Built-in queryable state API |
+| **Team topology** | Dedicated data engineering team | App developers owning their own pipelines |
+
+#### 🔑 Decision Rule
+
+> **Kafka Streams** — when your pipeline is simple, embedded, and microservice-friendly and state fits comfortably on one machine.
+>
+> **Flink** — when state grows large, joins become complex, you need SQL, or you must run the same logic over historical and live data.
+
+```
+Complexity / Scale
+      │
+High  │              ┌─────────────┐
+      │              │    Flink     │  large state, complex joins,
+      │              │              │  SQL, batch+stream, big clusters
+      │   ┌──────────┤              │
+      │   │  Kafka   └─────────────┘
+      │   │  Streams │
+Low   │   │  simple, │
+      │   │  embedded│
+      └───┴──────────┴───────────────▶  State Size / Join Complexity
+         Small                    Large
+```
+
+### 🔍 Deep Dive — How Keyed State Works in Practice
+
+#### What Is a "Key"?
+
+A **key** is the field you group your stream by — exactly like `GROUP BY` in SQL:
+
+```java
+stream.keyBy(event -> event.getUserId())  // userId is the key
+```
+
+Every unique value of that field is a separate key (`alice`, `bob`, `123`, `456`…). Flink routes all events with the same key to the **same task/thread**, so state for that key is always local.
+
+#### Managed State vs. Keyed State — Two Levels of the Same Concept
+
+| Level | What it describes |
+|---|---|
+| **Keyed State** | The *structure* — one isolated state drawer per key, keys never share state |
+| **Managed State** | The *contents* — the type of container inside each drawer (single value, list, map…) |
+
+> Like a filing cabinet: **Keyed State** = one drawer per customer. **Managed State** = the types of folders inside each drawer (ValueState, ListState, MapState…).
+
+#### What Happens When 10 Events Arrive for `userId=123`
+
+```
+Event 1:  [userId=123, amount=$10]
+Event 2:  [userId=123, amount=$5]
+Event 3:  [userId=123, amount=$20]
+... 10 events total
+```
+
+**Step 1 — `keyBy(userId)` routes all 10 to the same task**
+Same key = same partition = same Flink thread. No event for `123` ever goes to a different task.
+
+**Step 2 — Flink sets the key context to `123`**
+Before each event is processed, Flink points all state reads/writes to `123`'s drawer automatically. You never write `if userId == 123`.
+
+**Step 3 — State accumulates across all 10 events**
+
+```
+                  ValueState for key=123
+                       ↓
+Event 1  →  state = $10
+Event 2  →  state = $15   ($10 + $5)
+Event 3  →  state = $35   ($15 + $20)
+...
+Event 10 →  state = $X    (final running total)
+```
+
+The same `ValueState` instance is read and updated for every one of the 10 events — persisting between them.
+
+**Your code (called once per event):**
+
+```java
+public void processElement(Event event, Context ctx, Collector<String> out) {
+    // Flink has already set key context to event.userId
+    Double current = runningTotal.value();           // reads 123's state
+    if (current == null) current = 0.0;
+
+    runningTotal.update(current + event.getAmount()); // writes back to 123's state
+
+    out.collect("User 123 total: " + runningTotal.value());
+}
+```
+
+> **Key insight:** `ValueState` is a **pointer** — it always points to the *current key's* slot. When `123`'s event arrives it points to `123`'s value; when `456`'s event arrives next, the same object automatically points to `456`'s value. You write the logic once; Flink wires it to the right key.
 
 [⬆️ Back to Index](#index)
 

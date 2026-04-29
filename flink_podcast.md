@@ -97,6 +97,49 @@
 
 ---
 
+### 💡 Simplest Explanation: Watermarks
+
+**Bus Stop Analogy**
+
+> Imagine a bus stop. The bus is scheduled to leave at **3:00 PM**.
+> But you know some passengers are always a few minutes late.
+> So the driver **waits until 3:01 PM** before closing the door and leaving.
+> At 3:01 PM, the driver says: *"I'm confident everyone who was coming for the 3:00 bus is now here."*
+>
+> **That "3:01 PM decision moment" = Watermark in Flink.**
+
+| Real Life | Flink |
+|---|---|
+| Passengers | Events (clicks, sensor data, orders…) |
+| Scheduled bus time | Event time (timestamp in the event) |
+| Passengers arriving late | Out-of-order / late events |
+| Driver waiting 1 min | `Duration.ofSeconds(1)` — your tolerance |
+| Driver closing the door | Watermark trigger |
+| Bus departing | Window fires → result computed |
+
+**The one rule to remember:**
+```
+Watermark = Latest event time seen  −  How late events can be
+```
+
+**Why `max seen` event time?**
+A higher timestamp means time has progressed in the real world. If you've seen an event at `t=10`, the real world has moved past `t=10` — so events at `t=8, t=9` (which are older) must be close behind, within your tolerance. The out-of-orderness buffer covers the rest. Any event that arrives later than the tolerance is a **truly late event** and is handled via `allowedLateness()` or a side output.
+
+**Without watermark vs. with watermark:**
+```
+Without watermark → Flink waits forever 😶
+With watermark    → Flink knows WHEN it's safe to compute a window result ✅
+```
+
+**In code (3 important lines only):**
+```java
+WatermarkStrategy
+  .<MyEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))   // wait up to 5s for late events
+  .withTimestampAssigner((event, ts) -> event.getTimestamp())  // tell Flink which field is the time
+```
+
+---
+
 ## Concepts 5–10: Windows — Chopping the River into Buckets
 
 **Maya:** Alright. So we've got a never-ending river of events. How do we actually compute anything useful? Like, "total trading volume in the last hour"?
@@ -223,7 +266,19 @@
 
 **Maya:** What about **BroadcastState**? That sounds different.
 
-**Raj:** It is. Imagine you have a stream of transactions, and separately, a stream of fraud rules that your compliance team updates. You need every transaction processor to know the *latest* set of fraud rules. **BroadcastState** is how you "broadcast" one stream — the rules — to *all* instances of your operator, regardless of which customer key they're processing.
+**Raj:** It is. But before I explain BroadcastState, let me quickly clarify what an **operator** is — because it's central to understanding this.
+
+**Maya:** Sure, go ahead.
+
+**Raj:** In Flink, every transformation you write — a `map()`, a `filter()`, a `process()` — compiles into an **operator**. Think of it as a processing unit, a step in your pipeline. And because Flink runs in parallel, each operator doesn't run as a single worker — it runs as *multiple instances* simultaneously, each handling a slice of the data.
+
+**Maya:** So if I have parallelism set to 4, my `process()` step is actually running as 4 separate workers at the same time?
+
+**Raj:** Exactly. Each instance handles a subset of the keys — say Instance 1 handles customers A and B, Instance 2 handles C and D, and so on. Normally, state is local to each instance — customer A's state lives only in Instance 1 and never touches Instance 2.
+
+**Maya:** Got it. So now what's BroadcastState?
+
+**Raj:** Now it makes sense. Imagine you have a stream of transactions, and separately, a stream of fraud rules that your compliance team updates. You need *every* operator instance — all 4 of them — to know the *latest* set of fraud rules. **BroadcastState** is how you "broadcast" one stream — the rules — to *all* instances of your operator, regardless of which customer key they're processing.
 
 **Maya:** So it's like an announcement PA system, while other state is like individual employee desks.
 
@@ -236,6 +291,29 @@
 **Maya:** You mentioned "per key" a lot. Is all state per key?
 
 **Raj:** No — **Keyed State** is bound to a specific key (like customer ID). **Operator State** is bound to a specific processing instance regardless of key. Kafka consumer offsets, for example, are stored as operator state — they're about "where in the queue am I?" not "what does this customer know?"
+
+**Maya:** Can you make that more concrete?
+
+**Raj:** Sure. Think of a bank with 4 teller counters — those are your 4 parallel operator instances. Each teller has a filing cabinet with individual customer folders. Customer A's balance lives in Teller 1's cabinet, Customer B's in Teller 2's, and so on. That's **Keyed State** — it's personal to a specific customer. The question it answers is: *"What do I know about THIS customer?"*
+
+**Maya:** And Operator State?
+
+**Raj:** Now imagine each teller also has their own personal notepad — completely separate from any customer. Teller 1 writes "I've read up to message #1500 from Kafka partition 1." Teller 2 writes "I'm at message #3200 from partition 2." That notepad is **Operator State** — it belongs to the worker itself, not to any customer key. The question it answers is: *"Where am I in my own work?"*
+
+**Maya:** So Kafka consumer offsets are Operator State because they're about the worker's reading position — not about any particular customer.
+
+**Raj:** Exactly. Here's a quick way to remember it:
+
+| | Keyed State | Operator State |
+|---|---|---|
+| **Tied to** | A key (customer ID, order ID) | An operator instance (worker) |
+| **Real example** | Customer's running balance | Kafka read offset |
+| **Analogy** | Customer's file at the bank | Teller's personal notepad |
+| **Requires keyBy()** | ✅ Yes | ❌ No |
+
+**Maya:** That's really clean. Keyed State = memory about a customer. Operator State = memory about a worker's own progress.
+
+**Raj:** That's the perfect one-liner.
 
 ---
 
