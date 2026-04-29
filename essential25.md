@@ -43,17 +43,22 @@
 
 21. [🐳 Docker — 25 Essential Concepts](#docker--25-essential-concepts)
 22. [☸️ Kubernetes — 25 Essential Concepts](#kubernetes--25-essential-concepts)
-23. [☁️ AWS EC2 — 25 Essential Concepts](#aws-ec2--25-essential-concepts)
-24. [🚢 AWS ECS — 25 Essential Concepts](#aws-ecs--25-essential-concepts)
-25. [☸️ AWS EKS — 25 Essential Concepts](#aws-eks--25-essential-concepts)
-26. [λ AWS Lambda — 25 Essential Concepts](#λ-aws-lambda--25-essential-concepts)
-27. [🪣 AWS S3 — 25 Essential Concepts](#aws-s3--25-essential-concepts)
+23. [☁️ AWS Core — 25 Essential Concepts](#aws-core--25-essential-concepts)
+24. [🖥️ AWS EC2 — 25 Essential Concepts](#aws-ec2--25-essential-concepts)
+25. [🚢 AWS ECS — 25 Essential Concepts](#aws-ecs--25-essential-concepts)
+26. [☸️ AWS EKS — 25 Essential Concepts](#aws-eks--25-essential-concepts)
+27. [λ AWS Lambda — 25 Essential Concepts](#λ-aws-lambda--25-essential-concepts)
+28. [🪣 AWS S3 — 25 Essential Concepts](#aws-s3--25-essential-concepts)
+
+**Testing**
+
+29. [🧪 Testing — 25 Essential Concepts (JUnit · Mockito · Cucumber BDD)](#testing--25-essential-concepts)
 
 **Appendices**
 
-28. [📐 Appendix — 25 Essential Data Modelling Concepts](#appendix--25-essential-data-modelling-concepts)
-29. [🗄️ Appendix — 25 Essential SQL Queries for Large-Scale Analytics](#appendix--25-essential-sql-queries-for-large-scale-analytics)
-30. [🌿 Appendix — 25 Essential Git Commands](#appendix--25-essential-git-commands)
+30. [📐 Appendix — 25 Essential Data Modelling Concepts](#appendix--25-essential-data-modelling-concepts)
+31. [🗄️ Appendix — 25 Essential SQL Queries for Large-Scale Analytics](#appendix--25-essential-sql-queries-for-large-scale-analytics)
+32. [🌿 Appendix — 25 Essential Git Commands](#appendix--25-essential-git-commands)
 
 ---
 
@@ -2094,3 +2099,346 @@ ORDER BY updated_at;
 > **💡 Keep handy:** `git log --oneline --graph --all` gives a great visual overview of your branch history, and `git reflog` (honorable mention) can be a lifesaver for recovering lost commits.
 
 [⬆️ Back to Index](#index)
+
+---
+
+<a id="testing--25-essential-concepts"></a>
+
+## 🧪 Testing — 25 Essential Concepts (JUnit · Mockito · Cucumber BDD)
+
+### ✅ JUnit 5 — Unit Test Foundations
+
+1. **Test Lifecycle Annotations** — JUnit 5 provides `@Test` to mark a test method, and lifecycle hooks `@BeforeEach` / `@AfterEach` (run before/after every test) and `@BeforeAll` / `@AfterAll` (run once per class, must be `static`). These replace JUnit 4's `@Before`/`@After`. *Like a chef who preps the workspace before every order and cleans up after — the lifecycle hooks handle the repetitive setup so each test starts in a known state.*
+   ```java
+   @BeforeEach void setUp()    { db = new InMemoryDb(); }
+   @AfterEach  void tearDown() { db.close(); }
+   @Test void shouldSaveUser() { /* uses fresh db */ }
+   ```
+
+2. **Assertions (`assertThat`, `assertEquals`, `assertThrows`, `assertAll`)** — `Assertions.*` methods verify expected vs. actual values. `assertThrows` checks that an exception is raised. `assertAll` runs all assertions even if one fails — ideal for validating multiple fields together. *Like a quality inspector who checks every dimension of a part rather than stopping at the first defect.*
+   ```java
+   assertAll("user",
+       () -> assertEquals("Alice", user.getName()),
+       () -> assertEquals(30,      user.getAge())
+   );
+   Exception ex = assertThrows(IllegalArgumentException.class,
+       () -> service.save(null));
+   assertEquals("name required", ex.getMessage());
+   ```
+
+3. **Parameterized Tests (`@ParameterizedTest`)** — Run the same test logic with multiple inputs using `@ValueSource`, `@CsvSource`, `@MethodSource`, or `@EnumSource`. Eliminates copy-paste test duplication. *Like testing a vending machine by inserting coins of every denomination rather than writing a separate test for each coin.*
+   ```java
+   @ParameterizedTest
+   @CsvSource({"alice@example.com,true", "bad-email,false"})
+   void emailValidation(String email, boolean expected) {
+       assertEquals(expected, validator.isValid(email));
+   }
+   ```
+
+4. **Nested Tests (`@Nested`)** — Group related tests inside an inner class annotated with `@Nested`. Outer `@BeforeEach` methods still run; the inner class can add its own. Produces clearer, hierarchical test reports. *Like organising files into folders — each folder (context) has its own sub-tests.*
+   ```java
+   @Nested class WhenUserIsAdmin {
+       @BeforeEach void grantAdmin() { user.setRole(ADMIN); }
+       @Test void canDeletePosts() { assertTrue(service.delete(post, user)); }
+   }
+   ```
+
+5. **Tagging & Filtering (`@Tag`)** — Tag tests with `@Tag("slow")`, `@Tag("integration")`, etc. and run only certain tags via Maven Surefire or Gradle config. Keeps fast unit-test builds separate from slow integration runs. *Like labelling boxes — during a quick move you only take the "essentials" boxes.*
+   ```java
+   @Tag("integration") @Test void shouldFetchFromRealDb() { … }
+   ```
+
+6. **Test Ordering (`@TestMethodOrder`)** — By default, JUnit 5 doesn't guarantee order. Use `@TestMethodOrder(MethodOrderer.OrderAnnotation.class)` with `@Order(n)` when sequence matters (e.g., state-based integration tests). *Like setting a cooking sequence: prep before cook before plate.*
+
+7. **Assumptions (`assumeTrue`, `assumingThat`)** — Skip a test gracefully when a precondition is not met instead of failing it. Useful for OS-specific or environment-dependent tests. *Like a recipe card that says "skip this step if you don't have a blowtorch" — the dish still works.*
+   ```java
+   assumeTrue("CI".equals(System.getenv("ENV")), "Only on CI");
+   // rest of test runs only on CI
+   ```
+
+8. **JUnit 5 Extension Model (`@ExtendWith`)** — Replace JUnit 4 `@RunWith` with `@ExtendWith`. Extensions can inject parameters, handle lifecycle callbacks, or set up frameworks (e.g., `MockitoExtension`, `SpringExtension`). *Like plugin slots in an IDE — bolt in exactly the capabilities you need.*
+   ```java
+   @ExtendWith(MockitoExtension.class)
+   class OrderServiceTest { … }
+   ```
+
+---
+
+### 🎭 Mockito — Mocking & Stubbing
+
+9. **Creating Mocks (`@Mock` / `Mockito.mock()`)** — A mock replaces a real dependency with a test double that records interactions and returns configurable values. Annotate fields with `@Mock` (+ `MockitoExtension`) or call `Mockito.mock(Repo.class)` explicitly. *Like using a stunt double — the scene gets filmed without risking the real actor.*
+   ```java
+   @Mock UserRepository repo;
+   // or: UserRepository repo = Mockito.mock(UserRepository.class);
+   ```
+
+10. **Stubbing (`when/thenReturn`, `thenThrow`, `thenAnswer`)** — Define what a mock returns when called with specific arguments. `thenReturn` for a value, `thenThrow` to simulate errors, `thenAnswer` for dynamic responses. *Like programming an automated phone system: "If caller presses 1, say 'Sales'; if 2, say 'Support'."*
+    ```java
+    when(repo.findById(42L)).thenReturn(Optional.of(user));
+    when(repo.findById(-1L)).thenThrow(new NotFoundException());
+    ```
+
+11. **Argument Matchers (`any()`, `eq()`, `ArgumentMatchers`)** — When exact argument values don't matter, use matchers like `any()`, `anyString()`, `eq(value)`. Mix matchers only consistently — if one arg uses a matcher, all must. *Like a search filter: "any user with any ID" vs. "exactly user 42".*
+    ```java
+    when(repo.findByStatus(any(Status.class))).thenReturn(List.of(user));
+    verify(emailService).send(eq("admin@co.com"), anyString());
+    ```
+
+12. **Verification (`verify()`, `times()`, `never()`, `inOrder()`)** — Assert that a method was (or wasn't) called the expected number of times and in the right order. Catches silent bugs where a side-effect method is accidentally skipped. *Like reviewing a security log to confirm the vault was locked exactly once after closing.*
+    ```java
+    verify(emailService, times(1)).send(anyString(), anyString());
+    verify(auditLog, never()).logFailure(any());
+    InOrder order = inOrder(validator, repo);
+    order.verify(validator).validate(user);
+    order.verify(repo).save(user);
+    ```
+
+13. **Argument Captors (`ArgumentCaptor`)** — Capture the actual argument passed to a mock so you can assert on it in detail. Essential when the argument is built inside the method under test. *Like a speed camera — you don't stop the car, you just record exactly what passed.*
+    ```java
+    ArgumentCaptor<EmailRequest> captor =
+        ArgumentCaptor.forClass(EmailRequest.class);
+    verify(emailService).send(captor.capture());
+    assertEquals("Welcome!", captor.getValue().getSubject());
+    ```
+
+14. **Spy — Partial Mocking (`@Spy`)** — A spy wraps a real object, delegating all calls to the real implementation unless you explicitly stub them. Use sparingly — prefer pure mocks to keep tests deterministic. *Like a shadow: mostly the real person, but you can intercept specific moves.*
+    ```java
+    @Spy List<String> list = new ArrayList<>();
+    doReturn(99).when(list).size(); // stub one method; others are real
+    ```
+
+15. **`@InjectMocks` — Automatic Dependency Injection** — Mockito instantiates the class under test and injects all `@Mock`/`@Spy` fields into it (via constructor, setter, or field injection). Removes boilerplate wiring. *Like an assembly robot that snaps together the right parts automatically.*
+    ```java
+    @Mock UserRepository repo;
+    @Mock EmailService    emailService;
+    @InjectMocks UserService userService; // gets both mocks injected
+    ```
+
+16. **BDD Mockito Style (`given/willReturn`, `then/verify`)** — `BDDMockito` mirrors the Given-When-Then Gherkin vocabulary in test code: `given(repo.find(1L)).willReturn(user)` / `then(emailSvc).should().send(any())`. Aligns mock setup with the BDD language teams already speak. *Like translating the script into the same language the whole team uses.*
+    ```java
+    given(repo.findById(1L)).willReturn(Optional.of(user));
+    // when
+    userService.activate(1L);
+    // then
+    then(emailService).should().sendWelcome(user);
+    ```
+
+---
+
+### 🥒 Cucumber BDD — Behaviour-Driven Development
+
+17. **BDD Philosophy & the Three Amigos** — BDD bridges business and tech by expressing behaviour in plain language all stakeholders can read. The "Three Amigos" — business analyst, developer, and tester — collaborate to write scenarios *before* implementation, turning acceptance criteria into executable specifications. *Like drafting a contract together before the builder breaks ground.*
+
+18. **Gherkin Syntax (`Feature`, `Scenario`, `Given / When / Then`)** — Gherkin is the structured plain-English language Cucumber reads. A **Feature** file has one or more **Scenarios**, each with **Given** (context), **When** (action), and **Then** (outcome) steps. `And` / `But` extend any step. *Like a user-story card made executable: who, what, expected result.*
+    ```gherkin
+    Feature: User login
+      Scenario: Successful login with valid credentials
+        Given a registered user "alice" with password "secret"
+        When  she submits the login form
+        Then  she should see the dashboard
+        And   a welcome email should be sent
+    ```
+
+19. **Step Definitions** — Java methods annotated with `@Given`, `@When`, `@Then` (from `io.cucumber.java`) that match Gherkin steps via regex or Cucumber Expressions. They contain the actual test code. *Like the translation dictionary between human sentences and machine instructions.*
+    ```java
+    @Given("a registered user {string} with password {string}")
+    public void registeredUser(String name, String pwd) {
+        user = userService.register(name, pwd);
+    }
+    @Then("she should see the dashboard")
+    public void seeDashboard() {
+        assertEquals("dashboard", response.getView());
+    }
+    ```
+
+20. **Scenario Outline & Examples Table** — Parameterise a scenario over multiple data rows using `Scenario Outline` with `<placeholders>` and an `Examples:` table beneath. Cucumber generates one scenario per row. *Like a mail-merge template — one layout, many personalised letters.*
+    ```gherkin
+    Scenario Outline: Transfer between accounts
+      Given account A has balance <from>
+      When  <amount> is transferred
+      Then  account A has balance <remaining>
+      Examples:
+        | from | amount | remaining |
+        | 100  | 30     | 70        |
+        | 200  | 200    | 0         |
+    ```
+
+21. **Hooks (`@Before`, `@After`, `@BeforeStep`, `@AfterStep`)** — Cucumber hooks run around scenarios/steps without appearing in the feature file. Use `@Before` to seed the database, `@After` to clean up. Tag expressions (`@Before("@smoke")`) limit a hook to tagged scenarios. *Like stagehands who set and strike the scenery between acts — invisible to the audience.*
+    ```java
+    @Before("@db")
+    public void seedDatabase() { testDb.reset(); }
+
+    @After
+    public void takeScreenshotOnFail(Scenario scenario) {
+        if (scenario.isFailed()) driver.takeScreenshot();
+    }
+    ```
+
+22. **Tags & Filtering (`@smoke`, `@regression`, `@wip`)** — Annotate scenarios or whole features with `@tag`. Run a subset via the `cucumber.filter.tags` property: `--tags "@smoke and not @wip"`. Keeps CI pipelines fast by running only the relevant tier. *Like colour-coding tickets: red for urgent, blue for backlog — pick only the colour you need right now.*
+    ```gherkin
+    @smoke @login
+    Scenario: Successful login with valid credentials
+    ```
+
+23. **Data Tables** — Pass structured multi-row data directly in a step using a `DataTable`. The step definition receives it as `List<Map<String, String>>` or a custom type. Different from `Scenario Outline` — the data is part of one scenario, not repeated scenarios. *Like handing the waiter a written list of everything the table wants rather than ordering item by item.*
+    ```gherkin
+    When the following products are added to the cart:
+      | name    | qty |
+      | Widget  | 2   |
+      | Gadget  | 1   |
+    ```
+    ```java
+    @When("the following products are added to the cart:")
+    public void addProducts(List<Map<String, String>> rows) {
+        rows.forEach(r -> cart.add(r.get("name"),
+                                   Integer.parseInt(r.get("qty"))));
+    }
+    ```
+
+24. **Cucumber + JUnit 5 + Spring Integration** — Wire Cucumber into a Spring Boot test context using `@CucumberContextConfiguration`, `@SpringBootTest`, and `@Suite` / `@SelectClasspathResource`. Step definitions become Spring beans, enabling full `@Autowired` injection. *Like running the full play on a real stage rather than a rehearsal room.*
+    ```java
+    @CucumberContextConfiguration
+    @SpringBootTest(webEnvironment = RANDOM_PORT)
+    public class CucumberSpringConfig { }
+
+    // Runner class
+    @Suite
+    @IncludeEngines("cucumber")
+    @SelectClasspathResource("features")
+    @ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "com.example.steps")
+    public class CucumberTestSuite { }
+    ```
+
+25. **Living Documentation & Cucumber Reports** — Because feature files are plain text and git-tracked, they serve as always-current documentation owned by the whole team. Plugins like **Cucumber HTML Reporter** or **Allure** generate rich reports with pass/fail per scenario, screenshots, and trend graphs — turning test results into a product health dashboard. *Like a factory floor display showing real-time quality metrics — anyone walking past can read the status instantly.*
+    ```xml
+    <!-- pom.xml: generate HTML report -->
+    <plugin>
+      <groupId>net.masterthought</groupId>
+      <artifactId>maven-cucumber-reporting</artifactId>
+    </plugin>
+    ```
+
+> **💡 Testing pyramid reminder:** Keep the majority of tests as fast, focused **unit tests** (JUnit + Mockito), a smaller layer of **integration tests** (Spring Boot Test, Testcontainers), and a thin top layer of **end-to-end / acceptance tests** (Cucumber BDD). Invert the pyramid and your build will become too slow and brittle to trust.
+
+[⬆️ Back to Index](#index)
+
+---
+
+<a id="aws-core--25-essential-concepts"></a>
+
+## ☁️ AWS Core — 25 Essential Concepts
+
+### 🌍 Global Infrastructure
+
+1. **Regions & Availability Zones (AZs)** — AWS is divided into geographic **Regions** (e.g., `us-east-1`, `eu-west-1`), each containing two or more isolated **Availability Zones**. AZs are independent data centres with separate power, cooling, and networking but connected by low-latency private links. Deploying across multiple AZs gives you high availability; deploying across multiple Regions gives you disaster recovery and data residency compliance. *Think of a Region as a city and AZs as different post offices in that city — if one burns down, the others keep delivering mail.*
+
+2. **Edge Locations & AWS Global Accelerator** — Beyond Regions, AWS operates 400+ **Edge Locations** used by CloudFront (CDN) and Route 53 (DNS) to serve content from the point closest to the user. **AWS Global Accelerator** routes TCP/UDP traffic through the AWS backbone to the nearest healthy endpoint, reducing latency and improving resilience compared to the public internet. *Like having local branch offices worldwide so customers never need to call headquarters directly.*
+
+3. **Shared Responsibility Model** — AWS secures the infrastructure **of** the cloud (hardware, hypervisors, network, physical facilities); customers secure everything **in** the cloud (OS patches, app code, IAM policies, data encryption, network rules). The line shifts depending on the service: AWS manages more for managed services (RDS, Lambda) than for IaaS (EC2). *Like renting office space: the landlord maintains the building; you're responsible for what happens inside your unit.*
+
+---
+
+### 🔐 Identity & Access Management
+
+4. **IAM — Users, Groups, Roles & Policies** — **AWS Identity and Access Management (IAM)** is the access control plane for every AWS service. A **Policy** is a JSON document listing allowed/denied actions on resources. Policies attach to **Users** (humans), **Groups** (collections of users), or **Roles** (assumed by services, EC2 instances, Lambda functions, or cross-account principals). Always follow **least privilege** — grant only the permissions needed for the job. *Like a building access card system: the card (role) grants only the floors (services) that person needs.*
+   ```json
+   {
+     "Effect": "Allow",
+     "Action": ["s3:GetObject"],
+     "Resource": "arn:aws:s3:::my-bucket/*"
+   }
+   ```
+
+5. **IAM Roles for Service-to-Service Auth** — Attaching an IAM Role to an EC2 instance, ECS task, or Lambda function lets the workload call AWS APIs without storing access keys in code or environment variables. The SDK automatically retrieves rotating short-lived credentials from the **Instance Metadata Service (IMDS)**. *Like giving an employee a staff badge instead of a master key — temporary, scoped, automatically renewed.*
+
+6. **AWS Organizations & Service Control Policies (SCPs)** — **AWS Organizations** groups multiple AWS accounts into a hierarchy of **Organizational Units (OUs)**. **SCPs** act as maximum permission guardrails — they cannot grant permissions themselves but can restrict what any IAM entity in a child account can do, regardless of its own policies. Essential for enterprise governance and billing consolidation. *Like a franchise agreement: the franchisor sets what the franchisee can never do, even if local management approves it.*
+
+---
+
+### 🌐 Networking
+
+7. **VPC — Virtual Private Cloud** — A **VPC** is your own logically isolated network within an AWS Region. You define its IP address range (CIDR block, e.g., `10.0.0.0/16`), divide it into **subnets**, and control traffic with **Route Tables**, **Internet Gateways**, **NAT Gateways**, and **Security Groups**. Every production workload should live inside a VPC. *Like drawing the walls of your office floor plan before placing desks.*
+
+8. **Public vs. Private Subnets** — A **public subnet** has a route to an **Internet Gateway** so resources can receive inbound traffic from the internet. A **private subnet** has no direct internet route — outbound traffic goes through a **NAT Gateway** (outbound only). Databases and application servers belong in private subnets; load balancers and bastion hosts in public subnets. *Like a building's lobby (public) vs. the server room in the basement (private) — the lobby faces the street, the server room does not.*
+
+9. **Security Groups & NACLs** — **Security Groups** are stateful, instance-level virtual firewalls (allow rules only; return traffic is automatically permitted). **Network ACLs (NACLs)** are stateless subnet-level firewalls (explicit allow and deny rules for both directions). Use Security Groups for fine-grained service control and NACLs only for broad subnet-level guardrails. *Security Groups are like a bouncer who remembers who they let in (stateful); NACLs are like a checkpoint that checks every traveller both ways (stateless).*
+
+10. **Elastic Load Balancing (ELB)** — AWS offers three load balancer types — **pick one based on your protocol, not all three**:
+    - **Application Load Balancer (ALB)** — Layer 7, HTTP/HTTPS, path- and host-based routing, WebSocket, gRPC. Integrates natively with ECS, EKS, Lambda, Cognito, and WAF. **The right default for most web apps and microservices.**
+    - **Network Load Balancer (NLB)** — Layer 4, TCP/UDP/TLS, sub-millisecond latency, preserves client source IP, provides static IPs. Use when you need raw TCP throughput, PrivateLink, or non-HTTP protocols (MQTT, financial feeds, gaming).
+    - **Gateway Load Balancer (GWLB)** — transparent bump-in-the-wire for routing traffic through third-party virtual appliances (firewalls, IDS/IPS). Rarely needed unless you're deploying a network security appliance.
+
+    **Do you need both ALB and NLB?** Almost never. Use ALB alone for HTTP workloads. The one exception is placing an NLB in front of an ALB when you need a **static Elastic IP** (NLB provides it) while still wanting ALB's HTTP routing — AWS supports NLB → ALB as a target natively. *Like choosing the right gate at an airport: domestic terminal (ALB) handles most passengers; the cargo terminal (NLB) handles freight — you don't route passengers through the cargo gate.*
+
+---
+
+### 🗄️ Databases & Storage
+
+11. **Amazon RDS & Aurora** — **RDS** is a managed relational database service supporting MySQL, PostgreSQL, MariaDB, Oracle, and SQL Server. AWS handles provisioning, patching, backups, and failover. **Amazon Aurora** is a cloud-native engine compatible with MySQL/PostgreSQL, offering up to 5× MySQL throughput, 6-way replication across 3 AZs, and serverless auto-scaling options. Use RDS for lift-and-shift; Aurora for new cloud-native workloads. *Like outsourcing your database administration to a team that never sleeps.*
+
+12. **Amazon DynamoDB** — A fully managed, serverless NoSQL key-value and document database capable of single-digit millisecond latency at any scale. Data is stored in **Tables** with a mandatory **Partition Key** (and optional **Sort Key**). **DynamoDB Streams** capture item-level changes for event-driven architectures. **Global Tables** replicate across Regions for multi-region active-active setups. *Like an infinitely scalable filing cabinet that retrieves any folder in under 10 ms.*
+
+13. **Amazon ElastiCache** — Managed in-memory caching for **Redis** and **Memcached**. Use it to reduce database read load by caching query results, session data, or leaderboards. Redis mode supports multi-AZ replication, pub/sub, sorted sets, and persistence. *Like putting a whiteboard full of today's answers in front of the library so most people never need to look up the actual book.*
+
+14. **Amazon S3 (Core Concepts)** — **Simple Storage Service** is object storage with unlimited capacity, 11 nines of durability, and a flat namespace of **Buckets** and **Objects** (identified by keys). Storage classes range from **S3 Standard** (frequent access) → **S3-IA** → **S3 Glacier Instant/Flexible/Deep Archive** (archival). **Lifecycle Policies** automate transitions. **S3 Versioning** protects against accidental deletes. *Like a warehouse that never fills up and never loses a package.*
+
+---
+
+### 📨 Messaging & Integration
+
+15. **Amazon SQS — Simple Queue Service** — Fully managed message queuing for decoupling producers and consumers. **Standard Queues** offer at-least-once delivery with best-effort ordering at nearly unlimited throughput. **FIFO Queues** guarantee exactly-once processing and strict ordering up to 3,000 messages/second. **Dead Letter Queues (DLQs)** capture messages that fail repeated processing. *Like a to-do tray on a desk: the sender drops work in, the processor picks it up when ready — neither blocks the other.*
+
+16. **Amazon SNS — Simple Notification Service** — A managed pub/sub service for fan-out messaging. A **Topic** receives a message once and delivers it to all **Subscriptions** simultaneously (SQS queues, Lambda, HTTP endpoints, email, SMS). Combine SNS + SQS for the **fan-out pattern**: one event triggers multiple independent processing pipelines. *Like a company-wide announcement email: one sender, every subscriber receives it instantly.*
+
+17. **Amazon EventBridge** — A serverless event bus that connects AWS services, custom applications, and SaaS providers. Define **Event Rules** that filter events by pattern and route them to targets (Lambda, SQS, Step Functions, etc.). **EventBridge Pipes** provide point-to-point integrations with filtering and enrichment. The successor to CloudWatch Events for event-driven architectures. *Like a smart switchboard operator who listens to every call and routes it to the right department based on what's said.*
+
+---
+
+### ⚙️ Compute & Serverless
+
+18. **Amazon EC2 Auto Scaling** — **Auto Scaling Groups (ASGs)** automatically launch or terminate EC2 instances based on CloudWatch alarms (CPU, request count) or predictive scaling. Define minimum, desired, and maximum instance counts. Use **Launch Templates** to specify AMI, instance type, security groups, and user-data scripts. Combined with an ALB, ASGs provide elastic, self-healing compute. *Like a restaurant that calls in extra chefs for the Friday dinner rush and sends them home at midnight — automatically.*
+
+19. **AWS Lambda (Core Concepts)** — Run code without provisioning servers. Functions are triggered by events (API Gateway, S3, SQS, EventBridge) and scale automatically to thousands of concurrent executions. You pay only for the compute time consumed (per-millisecond billing). Key limits: 15-minute max timeout, 10 GB memory, 512 MB–10 GB ephemeral storage. Use **Lambda Layers** for shared dependencies. *Like a vending machine: you press a button (event), it runs the exact process needed and stops — billing starts only when you press.*
+
+20. **AWS API Gateway** — A fully managed service for creating, publishing, securing, and monitoring REST, HTTP, and WebSocket APIs at any scale. Integrates natively with Lambda (serverless back-end), VPC Link (private services), and IAM/Cognito for auth. **Usage Plans** + **API Keys** enforce per-client throttling and quotas. HTTP APIs are cheaper and lower latency than REST APIs for simple proxy use cases. *Like a front-of-house manager who greets every visitor, checks their ID, and directs them to the right room.*
+
+---
+
+### 👁️ Observability & Governance
+
+21. **Amazon CloudWatch** — The central observability service for AWS. Collects **Metrics** (CPU, memory, custom application metrics via `PutMetricData`), **Logs** (via CloudWatch Logs Insights, log groups, and log streams), and **Alarms** (trigger SNS, Auto Scaling, or Lambda on threshold breaches). **Contributor Insights** identifies top-N heavy hitters. **Embedded Metrics Format (EMF)** lets Lambda and containers emit custom metrics via structured log lines. *Like the control room of a power plant — every gauge, warning light, and alarm feeds into one dashboard.*
+
+22. **AWS CloudTrail** — Records every API call made in your account — who made it, from where, at what time, and what changed. Logs are delivered to S3 and optionally to CloudWatch Logs. Essential for **security audit**, **compliance** (SOC 2, PCI DSS), and **incident investigation**. Enable **CloudTrail Lake** for SQL-based query over event history. *Like a security camera system for your entire AWS account — you can rewind and see exactly who opened which door at what time.*
+
+23. **AWS CloudFormation & Infrastructure as Code (IaC)** — **CloudFormation** provisions and manages AWS resources using declarative YAML/JSON templates. Resources are grouped into **Stacks**; related stacks are organised into **StackSets** for multi-account/region deployment. The **CDK (Cloud Development Kit)** lets you write IaC in TypeScript, Python, or Java that synthesises to CloudFormation. *Like an architectural blueprint: hand it to the construction crew (CloudFormation) and they build exactly what you drew, every time.*
+    ```yaml
+    Resources:
+      MyBucket:
+        Type: AWS::S3::Bucket
+        Properties:
+          BucketName: my-app-assets
+          VersioningConfiguration:
+            Status: Enabled
+    ```
+
+---
+
+### 💰 Cost & Well-Architected
+
+24. **AWS Pricing Models (On-Demand, Reserved, Spot, Savings Plans)** — **On-Demand**: pay per second/hour, no commitment — maximum flexibility, highest price. **Reserved Instances (RIs)**: 1- or 3-year commitment for up to 72% discount — great for steady-state workloads. **Spot Instances**: bid for unused EC2 capacity at up to 90% discount — interruptible, ideal for batch jobs and stateless workers. **Savings Plans**: flexible commitment ($/hour) covering EC2, Fargate, and Lambda regardless of instance type or region. *Like booking a hotel: walk-in rate (on-demand) vs. annual membership (reserved) vs. last-minute standby deals (spot).*
+
+25. **AWS Well-Architected Framework — Six Pillars** — AWS's blueprint for building production-grade cloud systems across six dimensions:
+    - 🔒 **Operational Excellence** — deploy small, reversible changes; automate ops runbooks; learn from failures.
+    - 🛡️ **Security** — apply least privilege, encrypt data at rest and in transit, enable traceability via CloudTrail.
+    - 🔁 **Reliability** — design for failure; use multi-AZ, retries, circuit breakers, and chaos engineering.
+    - ⚡ **Performance Efficiency** — right-size compute; use serverless and managed services; benchmark regularly.
+    - 💰 **Cost Optimisation** — eliminate waste; use Reserved/Spot; tag resources for chargeback.
+    - 🌿 **Sustainability** — maximise utilisation; choose energy-efficient regions; right-size aggressively.
+
+    Use the **AWS Well-Architected Tool** in the console to assess any workload against all six pillars and get prioritised improvement recommendations. *Like a structured health check for your cloud architecture — a consultant who asks the hard questions before your next incident.*
+
+> **💡 AWS learning path:** Master IAM + VPC (the security and network foundation) before everything else — every other service sits on top of these two. Then layer in compute (EC2/Lambda), storage (S3/RDS), and messaging (SQS/SNS). Use the Well-Architected Framework as your ongoing quality benchmark, not a one-time checklist.
+
+[⬆️ Back to Index](#index)
+
+
